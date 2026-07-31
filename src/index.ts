@@ -4,6 +4,7 @@ export { createAgentBrowser, type CreateAgentBrowserOptions } from './create.js'
 export { createBrowserClient } from './browser.js'
 export type {
   BrowserCommandResult,
+  BrowserClientOptions,
   BrowserRunResult,
   CommandRunner,
   ExecOptions,

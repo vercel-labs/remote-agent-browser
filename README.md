@@ -43,6 +43,16 @@ node --env-file=.env.local examples/screenshot/index.mjs
 Starts a fresh browser in a disposable Vercel Sandbox. Always call
 `browser.close()` when finished.
 
+Pass agent-browser global options with `globalArgs`. They are placed before
+every command, which is required for launch settings such as color scheme,
+profiles, proxies, and init scripts:
+
+```ts
+const browser = await createAgentBrowser({
+  globalArgs: ['--color-scheme', 'dark', '--enable', 'react-devtools'],
+})
+```
+
 ### `browser.run(commands)`
 
 Run several agent-browser commands in the same session:

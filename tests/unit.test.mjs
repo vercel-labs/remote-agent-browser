@@ -46,6 +46,7 @@ describe('createAgentBrowser', () => {
       const browser = await createAgentBrowser({
         image: 'remote-agent-browser:v1',
         session: 'agent-session',
+        globalArgs: ['--color-scheme', 'dark'],
       })
 
       assert.equal(browser.session, 'agent-session')
@@ -58,6 +59,8 @@ describe('createAgentBrowser', () => {
       assert.deepEqual(sandbox.calls[0].args, [
         '--session',
         'agent-session',
+        '--color-scheme',
+        'dark',
         'open',
         'https://example.com',
       ])
@@ -110,6 +113,37 @@ describe('createBrowserClient', () => {
       '--session', 's1', 'snapshot', '-i',
     ])
     await browser.close()
+  })
+
+  it('places global args before every command and close', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, {
+      session: 's1',
+      globalArgs: ['--color-scheme', 'dark', '--enable', 'react-devtools'],
+    })
+
+    await browser.exec('open', { args: ['https://example.com'] })
+    assert.deepEqual(r.run.mock.calls[0].arguments[1], [
+      '--session',
+      's1',
+      '--color-scheme',
+      'dark',
+      '--enable',
+      'react-devtools',
+      'open',
+      'https://example.com',
+    ])
+
+    await browser.close()
+    assert.deepEqual(r.run.mock.calls[1].arguments[1], [
+      '--session',
+      's1',
+      '--color-scheme',
+      'dark',
+      '--enable',
+      'react-devtools',
+      'close',
+    ])
   })
 
   it('stops on the first failure by default', async () => {

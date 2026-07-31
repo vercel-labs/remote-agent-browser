@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   BrowserCommandResult,
   BrowserRunResult,
+  BrowserClientOptions,
   CommandRunner,
   ExecOptions,
   AgentBrowser,
@@ -39,8 +40,12 @@ export function flagsToArgs(flags: Record<string, unknown>): string[] {
   return args
 }
 
-function withSession(session: string, args: string[]): string[] {
-  return ['--session', session, ...args]
+function withSession(
+  session: string,
+  globalArgs: string[],
+  args: string[],
+): string[] {
+  return ['--session', session, ...globalArgs, ...args]
 }
 
 /**
@@ -53,12 +58,13 @@ function withSession(session: string, args: string[]): string[] {
  */
 export function createBrowserClient(
   runner: CommandRunner,
-  opts: { session?: string; ownsRunner?: boolean } = {},
+  opts: BrowserClientOptions = {},
 ): AgentBrowser {
   const session = opts.session ?? `session-${randomUUID()}`
   if (!SESSION_NAME.test(session)) {
     throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${session}"`)
   }
+  const globalArgs = [...(opts.globalArgs ?? [])]
   const ownsRunner = opts.ownsRunner ?? true
   let closed = false
 
@@ -82,12 +88,16 @@ export function createBrowserClient(
         ? positionals.length === 0
         : positionals.length === 1 && positionals[0] === fileSpec.subcommand)
 
-    let finalArgs = withSession(useSession, args)
+    let finalArgs = withSession(useSession, globalArgs, args)
     let remotePath: string | undefined
     if (wantsFile) {
       remotePath = `/tmp/agent-browser-${randomUUID()}.${fileSpec.ext}`
       // screenshot <path> is the first positional for these commands
-      finalArgs = withSession(useSession, [name!, ...rest, remotePath])
+      finalArgs = withSession(useSession, globalArgs, [
+        name!,
+        ...rest,
+        remotePath,
+      ])
     }
 
     const run = await runner.run('agent-browser', finalArgs, { timeoutMs })
@@ -194,7 +204,7 @@ export function createBrowserClient(
       closed = true
       // Close the CLI session's browser first so the sandbox can stop cleanly.
       await runner
-        .run('agent-browser', withSession(session, ['close']), {
+        .run('agent-browser', withSession(session, globalArgs, ['close']), {
           timeoutMs: 15_000,
         })
         .catch(() => {})

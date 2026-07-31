@@ -45,6 +45,14 @@ export type ExecOptions = {
   timeoutMs?: number
 }
 
+export type BrowserClientOptions = {
+  session?: string
+  /** agent-browser global options inserted before every command. */
+  globalArgs?: string[]
+  /** Whether close() also tears down the command runner. Default: true. */
+  ownsRunner?: boolean
+}
+
 /**
  * Minimal command executor the browser client needs. Implemented by the
  * Vercel Sandbox adapter; anything with the same shape can back a
