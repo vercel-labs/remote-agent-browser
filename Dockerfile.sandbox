@@ -1,0 +1,19 @@
+FROM node:24-slim
+
+# Keep the browser and its native CLI in the image so Sandbox creation never
+# installs packages at runtime. Debian Chromium supports amd64 and arm64.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        chromium \
+        fonts-liberation \
+        fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g --allow-scripts=agent-browser agent-browser
+
+ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-dev-shm-usage,--disable-gpu"
+ENV AGENT_BROWSER_DEFAULT_TIMEOUT=25000
+
+# Vercel Sandbox uses bash to execute commands in custom images.
+WORKDIR /vercel/sandbox
+CMD ["/bin/bash"]

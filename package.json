@@ -1,10 +1,39 @@
 {
   "name": "remote-agent-browser",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
+  "description": "Run agent-browser in a Vercel Sandbox created from a browser-ready container image",
+  "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./vercel": {
+      "types": "./dist/vercel.d.ts",
+      "import": "./dist/vercel.js"
+    }
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node server.mjs",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "node --test tests/e2e.test.mjs",
+    "test:unit": "node --test tests/unit.test.mjs"
+  },
+  "files": [
+    "dist",
+    "Dockerfile.sandbox",
+    "server.mjs",
+    "Dockerfile.vercel"
+  ],
+  "dependencies": {
+    "@vercel/sandbox": ">=2.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
   }
 }

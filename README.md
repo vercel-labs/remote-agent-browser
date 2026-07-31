@@ -1,153 +1,132 @@
 # remote-agent-browser
 
-A remote browser service: [agent-browser](https://github.com/vercel-labs/agent-browser) + Chromium wrapped in a tiny HTTP API, deployed on Vercel via a [Dockerfile](https://vercel.com/blog/dockerfile-on-vercel).
+Run [agent-browser](https://github.com/vercel-labs/agent-browser) in an isolated [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox). Chromium and the CLI are built once into a Docker image, pushed to Vercel Container Registry (VCR), and used as the root filesystem for every browser Sandbox.
 
-> **Integrating this into an app or agent?** Use the agent-facing usage guide at [`skills/remote-agent-browser/SKILL.md`](./skills/remote-agent-browser/SKILL.md) — copy it into your agent's skills directory (e.g. `.claude/skills/remote-agent-browser/`) or paste it into a system prompt. It's self-contained: endpoints, request/response shapes, session semantics, recipes, and pitfalls.
+```ts
+import { createRemoteBrowser } from 'remote-agent-browser'
 
-## Deploy
-
-```bash
-vercel deploy
+const browser = await createRemoteBrowser()
+try {
+  const { results } = await browser.run([
+    ['open', 'https://example.com'],
+    ['snapshot', '-i', '--json'],
+  ])
+  console.log(results[1].stdout)
+} finally {
+  await browser.close()
+}
 ```
 
-That's it — Vercel detects `Dockerfile.vercel`, builds the image, pushes it to Vercel Container Registry, and routes all traffic to the container.
+## 1. Build and upload the image
 
-Lock the deployment down before sharing the URL — the service will browse arbitrary URLs and run arbitrary page JavaScript on behalf of callers. Enable Deployment Protection and allowlist callers with Trusted Sources (below).
+VCR images are scoped to a Vercel project. Link this repository to the project and get a current registry credential:
 
-### Locking access to specific callers (Trusted Sources)
+```bash
+vercel link
+vercel env pull .env.local
+set -a; source .env.local; set +a
+printf '%s' "$VERCEL_OIDC_TOKEN" | docker login vcr.vercel.com \
+  --username oidc --password-stdin
+```
 
-To restrict the service to specific workloads instead of anyone holding a static token, enable Deployment Protection on all environments and use [Trusted Sources](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/trusted-sources): callers present a short-lived OIDC token in the `x-vercel-trusted-oidc-idp-token` header, verified against your allowlist before the request reaches the container.
+Then build and push `Dockerfile.sandbox`. Replace the team and project slugs and use an immutable version or commit tag in production:
 
-- **Another Vercel project** (e.g. an app calling this service): add it under **Trusted Sources → Vercel Projects** (same team) or **External Services → Vercel OIDC (external team)** (`owner_id` + `project_id`). The caller forwards `await getVercelOidcToken()` from `@vercel/oidc` on each request.
-- **CI**: add GitHub Actions as an External Service scoped to this repository; `.github/workflows/e2e.yml` already mints the id-token and the test suite sends it automatically.
+```bash
+docker buildx build \
+  -f Dockerfile.sandbox \
+  --platform linux/amd64,linux/arm64 \
+  --output "type=image,name=vcr.vercel.com/<team>/<project>/remote-agent-browser:v1,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true" \
+  .
+```
 
-The service itself does no authentication — access control is entirely this platform layer, enforced before requests reach the container.
+The default API image is `remote-agent-browser:latest` in the Sandbox project's registry. Either push that tag, set `REMOTE_AGENT_BROWSER_IMAGE`, or pass `image` explicitly:
+
+```ts
+const browser = await createRemoteBrowser({
+  image: 'remote-agent-browser:v1',
+})
+```
+
+A full VCR URL and an immutable digest also work:
+
+```ts
+await createRemoteBrowser({
+  image: 'vcr.vercel.com/<team>/<project>/remote-agent-browser@sha256:<digest>',
+})
+```
+
+VCR builds an optimized Sandbox image after a push. No npm, system-package, or browser installation happens while serving a request.
+
+## 2. Install and authenticate
+
+```bash
+npm install remote-agent-browser @vercel/sandbox
+```
+
+`@vercel/sandbox` reads credentials from the environment. On Vercel this is normally `VERCEL_OIDC_TOKEN`; locally, use a linked project and `vercel env pull .env.local`.
 
 ## API
 
-### `GET /commands`
+### `createRemoteBrowser(options?)`
 
-Lists every supported agent-browser command with a one-line description. The service covers the full page-facing CLI surface: `open`, `read`, `click`, `dblclick`, `type`, `fill`, `press`, `keyboard`, `hover`, `focus`, `check`, `uncheck`, `select`, `drag`, `upload`, `download`, `scroll`, `scrollintoview`, `wait`, `screenshot`, `pdf`, `snapshot`, `eval`, `close`, `back`, `forward`, `reload`, `pushstate`, `get`, `is`, `find`, `mouse`, `set`, `network`, `cookies`, `storage`, `state`, `tab`, `diff`, `trace`, `profiler`, `record`, `console`, `errors`, `highlight`, `clipboard`, `react`, `vitals`, `removeinitscript`, `batch`, `session`, `skills`, `doctor`.
+Creates one non-persistent Sandbox from the uploaded image. Non-persistent is intentional: each browser is disposable and `close()` should not create billable filesystem snapshots.
 
-Deliberately excluded: system/lifecycle commands (`install`, `upgrade`, `dashboard`, `profiles`, `plugin`, `auth`), interactive ones (`chat`, `mcp`, `inspect`, `confirm`/`deny`), and ones needing extra ports (`connect`, `stream` — only `$PORT` is routed on Vercel).
+| option | default | notes |
+| --- | --- | --- |
+| `image` | `REMOTE_AGENT_BROWSER_IMAGE` or `remote-agent-browser:latest` | VCR repository, tag, digest, or full URL |
+| `session` | random | agent-browser session name |
+| `timeoutMs` | 10 minutes | Sandbox wall-clock timeout |
+| `vcpus` | `2` | 4 GB RAM; enough for one Chromium browser |
+| `env` | — | Extra environment variables passed to Sandbox commands |
+| `sandbox` | `@vercel/sandbox` | Injectable factory for tests or compatible providers |
 
-### `POST /commands/<name>`
+### `browser.run(commands, options?)`
 
-Run one command. `args` are positional CLI args; `flags` is an object serialized to `--kebab-case` flags (`true` → bare flag, arrays → repeated flag).
+Runs arrays of agent-browser CLI arguments in order and in the same browser session. It stops at the first error unless `stopOnError: false`.
 
-```bash
-curl -X POST https://<deployment>/commands/snapshot \
-  -H 'content-type: application/json' \
-  -d '{"flags": {"interactive": true, "json": true}}'
+```ts
+const run = await browser.run([
+  ['open', 'https://my-preview.vercel.app'],
+  ['wait', '--load', 'networkidle'],
+  ['snapshot', '-i', '--json'],
+  ['click', '@e3'],
+])
 
-curl -X POST https://<deployment>/commands/find \
-  -H 'content-type: application/json' \
-  -d '{"args": ["role", "button", "click"], "flags": {"name": "Submit"}}'
+// { session, ok, results: [{ args, ok, exitCode, stdout, stderr, file? }] }
 ```
 
-File-producing commands (`screenshot`, `pdf`, `trace stop`, `profiler stop`, `record stop`) return the file bytes directly (`image/png`, `application/pdf`, …) when you don't pass an output path yourself:
+### `browser.exec(command, options?)`
 
-```bash
-curl -X POST https://<deployment>/commands/pdf \
-  -H 'content-type: application/json' -d '{}' --output page.pdf
+Runs one command. `flags` are converted from camelCase to CLI flags; `true` becomes a bare flag and arrays become repeated flags.
 
-curl -X POST https://<deployment>/commands/screenshot \
-  -H 'content-type: application/json' \
-  -d '{"flags": {"full": true, "screenshotFormat": "jpeg"}}' --output page.jpg
+```ts
+await browser.exec('find', {
+  args: ['role', 'button', 'click'],
+  flags: { name: 'Submit' },
+})
 ```
 
-### `POST /run`
+### Convenience methods
 
-Execute a batch of agent-browser commands in order. Each command is an array of CLI args (no shell involved).
+- `browser.snapshot(url)` opens a URL and returns its interactive JSON snapshot.
+- `browser.screenshot(url, { fullPage: true })` returns `{ png: Buffer, result }`.
+- File commands such as `screenshot`, `pdf`, `trace stop`, `profiler stop`, and `record stop` put downloaded bytes on `result.file` when no output path is supplied.
+- `browser.close()` closes the agent-browser session and stops the Sandbox. It is idempotent.
 
-```bash
-curl -X POST https://<deployment>/run \
-  -H 'content-type: application/json' \
-  -d '{
-    "commands": [
-      ["open", "https://example.com"],
-      ["snapshot", "-i", "--json"],
-      ["get", "text", "@e1"]
-    ]
-  }'
-```
+## Bring your own runner
 
-Returns `{ results: [{ command, ok, exitCode, stdout, stderr }] }`. Execution stops at the first failure unless `"stopOnError": false` is set. Every command is validated against the same allowlist as `/commands/<name>`.
+`createBrowserClient(runner)` provides the same session-oriented API over anything implementing `CommandRunner`. `provisionBrowserSandbox()` accepts an injected `SandboxFactory` for unit tests.
 
-### `POST /snapshot`
+## Optional hosted HTTP service
 
-Open a URL and return its interactive accessibility snapshot as JSON.
-
-```bash
-curl -X POST https://<deployment>/snapshot \
-  -H 'content-type: application/json' \
-  -d '{"url": "https://example.com"}'
-```
-
-### `POST /screenshot`
-
-Open a URL and return a PNG. Accepts optional `"fullPage": true`.
-
-```bash
-curl -X POST https://<deployment>/screenshot \
-  -H 'content-type: application/json' \
-  -d '{"url": "https://example.com"}' \
-  --output page.png
-```
-
-### `GET /healthz`
-
-Liveness check.
-
-## How it works
-
-- The image installs `agent-browser` globally and Debian's `chromium` package, wired together with `AGENT_BROWSER_EXECUTABLE_PATH`. (Not `agent-browser install`: Chrome for Testing has no Linux ARM64 builds, so that path breaks local builds on Apple Silicon.)
-- agent-browser's Rust daemon starts on the first command and keeps the browser alive between commands, so chained commands within a request are fast.
-- Chromium runs with `--no-sandbox` (the container runs as root, where the sandbox can't start) and `--disable-dev-shm-usage` via `AGENT_BROWSER_ARGS`.
-- The server listens on `$PORT` (Vercel defaults it to 80) and handles `SIGTERM` for clean scale-in.
-
-## Concurrency
-
-Concurrent requests are safe. Vercel's Fluid compute routes multiple in-flight requests to the same instance, so every request runs in an isolated agent-browser session (`--session req-<uuid>`) — parallel batches each get their own browser state and can't clobber each other. Ephemeral sessions are closed when the request finishes; `tini` runs as PID 1 to reap the Chromium processes they leave behind.
-
-To keep state across requests (at your own risk — see the caveat below), pass a session name and close it yourself when done:
-
-```bash
-curl -X POST .../run -d '{"session": "sandbox-42", "commands": [["open", "https://my-preview.vercel.app"]]}'
-curl -X POST .../run -d '{"session": "sandbox-42", "commands": [["snapshot", "-i"]]}'
-curl -X POST .../commands/close -d '{"session": "sandbox-42"}'
-```
-
-`/commands/<name>` also accepts `"session"`; without it, single commands share the daemon's `default` session.
-
-Each concurrent session launches its own browser, so memory is the scaling limit per instance — beyond that, Vercel scales instances out horizontally.
-
-## Statelessness caveat
-
-Vercel containers autoscale and scale to zero after 5 minutes without traffic (30 seconds on preview deployments), and consecutive requests are not guaranteed to hit the same instance. A warm instance *does* keep the daemon and open pages alive, so quick successive calls often share state — but don't rely on it. Put everything a task needs into a single `/run` batch.
+The older HTTP-service form remains available in [Dockerfile.vercel](./Dockerfile.vercel) and [server.mjs](./server.mjs). It is separate from the recommended library flow above: that container receives HTTP requests itself, while `Dockerfile.sandbox` is an image used to create a fresh isolated Sandbox per browser.
 
 ## Tests
 
-`tests/e2e.test.mjs` (built-in `node:test` runner, no dependencies) exercises every supported command end-to-end through the HTTP API — functional assertions for interactions (click changes the page, fill round-trips values, cookies persist), binary checks for screenshot/PDF magic bytes, session-isolation checks, and a coverage test that fails if any command from `GET /commands` is left unexercised.
-
 ```bash
-npm test                                                 # builds & boots a local container itself
-BASE_URL=https://<deployment> npm test                   # against a deployment
-# add VERCEL_TRUSTED_OIDC_TOKEN=... if the deployment is behind Deployment Protection
+npm run typecheck
+npm run test:unit
+npm test
 ```
 
-CI runs the same suite against every Vercel preview deployment: `.github/workflows/e2e.yml` triggers on the `deployment_status` event Vercel emits when a preview goes live and points `BASE_URL` at it. Protected previews are handled by Trusted Sources — the job mints a GitHub OIDC id-token, no secret needed (add GitHub Actions as a Trusted Source on the project, scoped to this repo).
-
-Environment caveats asserted as "accepted" rather than pass/fail: `record` needs ffmpeg, which the lean image omits (add `ffmpeg` to the apt install line for video capture); `react` commands need a React app opened with `--enable react-devtools`.
-
-## Local development
-
-```bash
-# With the Vercel CLI (requires Docker):
-vercel dev
-
-# Or plain Docker:
-docker build -f Dockerfile.vercel -t remote-agent-browser .
-docker run --rm -p 8080:8080 -e PORT=8080 remote-agent-browser
-curl -X POST localhost:8080/snapshot -H 'content-type: application/json' -d '{"url":"https://example.com"}'
-```
+The full test command also builds and runs the optional HTTP service with local Docker.
