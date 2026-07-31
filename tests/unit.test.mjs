@@ -23,14 +23,19 @@ function makeCommand({ exitCode = 0, stdout = '', stderr = '' } = {}) {
 
 function makeSandbox(handler) {
   const calls = []
+  const writes = []
   return {
     calls,
+    writes,
     sandboxId: 'sbx_test123',
     status: 'running',
     stop: mock.fn(async () => {}),
     async runCommand(opts) {
       calls.push(opts)
       return handler ? handler(opts) : makeCommand()
+    },
+    async writeFiles(files) {
+      writes.push(...files)
     },
   }
 }
@@ -96,6 +101,7 @@ describe('createBrowserClient', () => {
   const runner = () => ({
     run: mock.fn(async () => ({ stdout: 'ok', stderr: '', exitCode: 0 })),
     readFile: mock.fn(async () => Buffer.from('png-bytes')),
+    writeFile: mock.fn(async () => {}),
     close: mock.fn(async () => {}),
   })
 
@@ -163,6 +169,37 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('writes local buffers before uploading them', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    const bytes = Buffer.from('hello')
+    await browser.upload('#avatar', [{ name: '../profile photo.png', bytes }])
+
+    const [remotePath, writtenBytes] = r.writeFile.mock.calls[0].arguments
+    assert.match(remotePath, /^\/tmp\/agent-browser-.*-profile-photo\.png$/)
+    assert.deepEqual(writtenBytes, bytes)
+    assert.deepEqual(r.run.mock.calls[0].arguments[1], [
+      '--session', 's1', 'upload', '#avatar', remotePath,
+    ])
+    await browser.close()
+  })
+
+  it('returns downloaded file bytes from the runner', async () => {
+    const r = runner()
+    r.readFile.mock.mockImplementationOnce(async () => Buffer.from('downloaded'))
+    const browser = createBrowserClient(r, { session: 's1' })
+    const { file, result } = await browser.download('#report', {
+      filename: 'report.csv',
+    })
+
+    const args = r.run.mock.calls[0].arguments[1]
+    assert.deepEqual(args.slice(0, 4), ['--session', 's1', 'download', '#report'])
+    assert.match(args[4], /^\/tmp\/agent-browser-.*-report\.csv$/)
+    assert.deepEqual(file.bytes, Buffer.from('downloaded'))
+    assert.equal(file, result.file)
+    await browser.close()
+  })
+
   it('closes the CLI session then the runner', async () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })
@@ -177,6 +214,20 @@ describe('createBrowserClient', () => {
 // --- provisioning -----------------------------------------------------------
 
 describe('provisionBrowserSandbox', () => {
+  it('writes buffers through the sandbox file API', async () => {
+    const sandbox = makeSandbox()
+    const create = mock.method(Sandbox, 'create', async () => sandbox)
+
+    try {
+      const runner = await provisionBrowserSandbox({})
+      const bytes = Buffer.from('upload')
+      await runner.writeFile('/tmp/upload.txt', bytes)
+      assert.deepEqual(sandbox.writes, [{ path: '/tmp/upload.txt', content: bytes }])
+    } finally {
+      create.mock.restore()
+    }
+  })
+
   it('creates an ephemeral sandbox from the default browser image', async () => {
     const sandbox = makeSandbox()
     const create = mock.method(Sandbox, 'create', async () => sandbox)

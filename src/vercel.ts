@@ -68,6 +68,10 @@ export class SandboxRunner implements CommandRunner {
     return Buffer.from(stdout.trim(), 'base64')
   }
 
+  async writeFile(path: string, bytes: Buffer): Promise<void> {
+    await this.sandbox.writeFiles([{ path, content: bytes }])
+  }
+
   async close(): Promise<void> {
     await this.sandbox.stop().catch(() => {})
   }

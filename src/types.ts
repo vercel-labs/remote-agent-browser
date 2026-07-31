@@ -9,6 +9,8 @@
  */
 
 /** One agent-browser CLI invocation result. */
+export type BrowserFile = { path: string; bytes: Buffer; contentType: string }
+
 export type BrowserCommandResult = {
   /** The CLI args that ran, e.g. ["snapshot", "-i", "--json"] */
   args: string[]
@@ -17,8 +19,11 @@ export type BrowserCommandResult = {
   stdout: string
   stderr: string
   /** File bytes collected from the sandbox for file-producing commands. */
-  file?: { path: string; bytes: Buffer; contentType: string }
+  file?: BrowserFile
 }
+
+/** A local file to make available to an upload command. */
+export type BrowserUploadFile = { name: string; bytes: Buffer }
 
 /** A batch of commands run sequentially in one session. */
 export type BrowserRunResult = {
@@ -59,6 +64,8 @@ export interface CommandRunner {
   ): Promise<{ stdout: string; stderr: string; exitCode: number | null }>
   /** Read a file's bytes from the remote environment. */
   readFile(path: string): Promise<Buffer>
+  /** Write file bytes into the remote environment. */
+  writeFile(path: string, bytes: Buffer): Promise<void>
   /** Tear the remote environment down. */
   close(): Promise<void>
 }
@@ -71,6 +78,17 @@ export interface AgentBrowser {
   run(commands: string[][], opts?: RunOptions): Promise<BrowserRunResult>
   /** Run one agent-browser command by name. */
   exec(command: string, opts?: ExecOptions): Promise<BrowserCommandResult>
+  /** Upload one or more local buffers through a file input. */
+  upload(
+    selector: string,
+    files: BrowserUploadFile[],
+    opts?: Pick<ExecOptions, 'session' | 'timeoutMs'>,
+  ): Promise<BrowserCommandResult>
+  /** Download a file triggered by an element and return its bytes. */
+  download(
+    selector: string,
+    opts?: Pick<ExecOptions, 'session' | 'timeoutMs'> & { filename?: string },
+  ): Promise<{ file: BrowserFile; result: BrowserCommandResult }>
   /** Open a URL and return the interactive accessibility snapshot (JSON). */
   snapshot(url: string, opts?: RunOptions): Promise<BrowserRunResult>
   /** Open a URL and return a PNG screenshot. */

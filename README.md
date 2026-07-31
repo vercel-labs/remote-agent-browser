@@ -67,6 +67,20 @@ await browser.exec('find', {
 })
 ```
 
+### File transfer
+
+Upload local buffers through a page's file input, or collect a browser download
+without exposing the Sandbox filesystem:
+
+```ts
+await browser.upload('#avatar', [
+  { name: 'avatar.png', bytes: await readFile('avatar.png') },
+])
+
+const { file } = await browser.download('#export', { filename: 'report.csv' })
+await writeFile('report.csv', file.bytes)
+```
+
 ### Convenience methods
 
 - `browser.snapshot(url)` opens a page and returns its interactive snapshot.

@@ -23,6 +23,11 @@ const FILE_OUTPUT: Record<
 const SESSION_NAME = /^[\w.-]{1,64}$/
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000
 
+function safeFilename(name: string): string {
+  const filename = name.split(/[\\/]/).at(-1)?.replace(/[^\w.-]/g, '-')
+  return filename || 'file'
+}
+
 /** { json: true, fullPage: true, depth: 2 } → ["--json", "--full-page", "--depth", "2"] */
 export function flagsToArgs(flags: Record<string, unknown>): string[] {
   const args: string[] = []
@@ -162,6 +167,48 @@ export function createBrowserClient(
         throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${useSession}"`)
       }
       return execCommand(args, execOpts.timeoutMs, useSession)
+    },
+
+    async upload(selector, files, execOpts = {}) {
+      assertOpen()
+      if (files.length === 0) throw new Error('upload requires at least one file')
+      const remotePaths: string[] = []
+      for (const file of files) {
+        const remotePath = `/tmp/agent-browser-${randomUUID()}-${safeFilename(file.name)}`
+        await runner.writeFile(remotePath, file.bytes)
+        remotePaths.push(remotePath)
+      }
+      return this.exec('upload', {
+        ...execOpts,
+        args: [selector, ...remotePaths],
+      })
+    },
+
+    async download(selector, execOpts = {}) {
+      assertOpen()
+      const remotePath = `/tmp/agent-browser-${randomUUID()}-${safeFilename(
+        execOpts.filename ?? 'download',
+      )}`
+      const result = await this.exec('download', {
+        session: execOpts.session,
+        timeoutMs: execOpts.timeoutMs,
+        args: [selector, remotePath],
+      })
+      if (!result.ok) throw new Error(`download failed: ${result.stderr || result.stdout}`)
+      try {
+        result.file = {
+          path: remotePath,
+          bytes: await runner.readFile(remotePath),
+          contentType: 'application/octet-stream',
+        }
+      } catch (error) {
+        throw new Error(
+          `download succeeded but ${remotePath} could not be read: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+      return { file: result.file, result }
     },
 
     async snapshot(url, runOpts = {}) {
