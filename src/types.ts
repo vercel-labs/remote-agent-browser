@@ -4,7 +4,7 @@
  * The library has two layers:
  *  - `AgentBrowser` (browser.ts): a thin, session-oriented client over the
  *    `agent-browser` CLI running somewhere that can execute commands.
- *  - `createAgentBrowser` (create.ts): provisions a Vercel Sandbox from a
+ *  - `AgentBrowser.create()` (create.ts): provisions a Vercel Sandbox from a
  *    browser-ready image and returns an `AgentBrowser` backed by it.
  */
 

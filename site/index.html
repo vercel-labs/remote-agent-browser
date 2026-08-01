@@ -72,9 +72,9 @@
 
       <section aria-labelledby="usage">
         <h2 id="usage">BASIC USAGE</h2>
-        <pre><code><span class="token-keyword">import</span> { createAgentBrowser } <span class="token-keyword">from</span> <span class="token-string">'remote-agent-browser'</span>
+        <pre><code><span class="token-keyword">import</span> { AgentBrowser } <span class="token-keyword">from</span> <span class="token-string">'remote-agent-browser'</span>
 
-<span class="token-keyword">const</span> browser = <span class="token-keyword">await</span> createAgentBrowser({
+<span class="token-keyword">const</span> browser = <span class="token-keyword">await</span> AgentBrowser.create({
   args: [<span class="token-string">'--color-scheme'</span>, <span class="token-string">'dark'</span>],
 })
 
@@ -102,7 +102,7 @@
         <h2 id="commands">API</h2>
         <dl class="api-list">
           <div>
-            <dt><code>createAgentBrowser(options?)</code></dt>
+            <dt><code>AgentBrowser.create(options?)</code></dt>
             <dd>
               Start a disposable browser Sandbox. Use <code>args</code>
               for launch settings shared by every command.

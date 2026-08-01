@@ -12,7 +12,7 @@ pnpm add remote-agent-browser
 
 ## Use
 
-`createAgentBrowser()` starts a fresh Vercel Sandbox from the prebuilt browser
+`AgentBrowser.create()` starts a fresh Vercel Sandbox from the prebuilt browser
 image. Commands in one client share the same page, cookies, tabs, and element
 references. `close()` closes Chromium and stops the Sandbox.
 
@@ -38,7 +38,7 @@ node --env-file=.env.local examples/screenshot/index.mjs
 
 ## API
 
-### `createAgentBrowser()`
+### `AgentBrowser.create()`
 
 Starts a fresh browser in a disposable Vercel Sandbox. Always call
 `browser.close()` when finished.
@@ -48,7 +48,7 @@ every command, which is required for launch settings such as color scheme,
 profiles, proxies, and init scripts:
 
 ```ts
-const browser = await createAgentBrowser({
+const browser = await AgentBrowser.create({
   args: ['--color-scheme', 'dark', '--enable', 'react-devtools'],
 })
 ```

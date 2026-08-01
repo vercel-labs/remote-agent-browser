@@ -32,9 +32,9 @@ export type CreateAgentBrowserOptions = {
  * `vercel login`), via @vercel/sandbox.
  *
  * ```ts
- * import { createAgentBrowser } from 'remote-agent-browser'
+ * import { AgentBrowser } from 'remote-agent-browser'
  *
- * const browser = await createAgentBrowser()
+ * const browser = await AgentBrowser.create()
  * const { results } = await browser.run([
  *   ['open', 'https://example.com'],
  *   ['snapshot', '-i', '--json'],

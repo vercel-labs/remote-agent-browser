@@ -1,6 +1,5 @@
 import {
-  createAgentBrowser,
-  type AgentBrowser,
+  AgentBrowser,
   type BrowserCommandResult,
 } from 'remote-agent-browser'
 
@@ -10,7 +9,7 @@ function getBrowser(agentSessionId: string): Promise<AgentBrowser> {
   const existing = browsers.get(agentSessionId)
   if (existing) return existing
 
-  const pending = createAgentBrowser()
+  const pending = AgentBrowser.create()
   browsers.set(agentSessionId, pending)
   void pending.catch(() => {
     if (browsers.get(agentSessionId) === pending) {

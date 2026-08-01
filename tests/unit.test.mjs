@@ -5,7 +5,11 @@ import assert from 'node:assert/strict'
 import { Sandbox } from '@vercel/sandbox'
 
 import { flagsToArgs } from '../src/browser.ts'
-import { createAgentBrowser, createBrowserClient } from 'remote-agent-browser'
+import {
+  AgentBrowser,
+  createAgentBrowser,
+  createBrowserClient,
+} from 'remote-agent-browser'
 import {
   DEFAULT_BROWSER_IMAGE,
   provisionBrowserSandbox,
@@ -42,13 +46,14 @@ function makeSandbox(handler) {
 
 // --- public factory ---------------------------------------------------------
 
-describe('createAgentBrowser', () => {
+describe('AgentBrowser.create', () => {
   it('creates a session client from the requested image and owns its sandbox', async () => {
     const sandbox = makeSandbox()
     const create = mock.method(Sandbox, 'create', async () => sandbox)
 
     try {
-      const browser = await createAgentBrowser({
+      assert.equal(AgentBrowser.create, createAgentBrowser)
+      const browser = await AgentBrowser.create({
         image: 'remote-agent-browser:v1',
         session: 'agent-session',
         args: ['--color-scheme', 'dark'],

@@ -1,9 +1,9 @@
 import { writeFile } from 'node:fs/promises'
-import { createAgentBrowser } from 'remote-agent-browser'
+import { AgentBrowser } from 'remote-agent-browser'
 
 const url = process.argv[2] ?? 'https://example.com'
 const outputPath = process.argv[3] ?? 'screenshot.png'
-const browser = await createAgentBrowser()
+const browser = await AgentBrowser.create()
 
 try {
   const { png } = await browser.screenshot(url, { fullPage: true })

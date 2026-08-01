@@ -8,7 +8,7 @@
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { createAgentBrowser } from 'remote-agent-browser'
+import { AgentBrowser } from 'remote-agent-browser'
 
 const enabled = process.env.RUN_INTEGRATION === '1'
 const PAGE = `data:text/html,${encodeURIComponent(`<!doctype html>
@@ -24,7 +24,7 @@ describe('Vercel Sandbox integration', { skip: !enabled }, () => {
   let browser
 
   before(async () => {
-    browser = await createAgentBrowser({
+    browser = await AgentBrowser.create({
       image: process.env.REMOTE_AGENT_BROWSER_IMAGE,
       session: `integration-${Date.now()}`,
       timeoutMs: 5 * 60 * 1000,
