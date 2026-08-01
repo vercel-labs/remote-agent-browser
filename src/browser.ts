@@ -9,17 +9,18 @@ import type {
   RunOptions,
 } from './types.js'
 
-/** Commands whose output is a file we pull back as bytes. */
-const FILE_OUTPUT: Record<
-  string,
-  { subcommand: string | null; ext: string; contentType: string }
-> = {
-  screenshot: { subcommand: null, ext: 'png', contentType: 'image/png' },
-  pdf: { subcommand: null, ext: 'pdf', contentType: 'application/pdf' },
-  trace: { subcommand: 'stop', ext: 'json', contentType: 'application/json' },
-  profiler: { subcommand: 'stop', ext: 'json', contentType: 'application/json' },
-  record: { subcommand: 'stop', ext: 'webm', contentType: 'video/webm' },
-}
+type FileSpec = { ext: string; contentType: string }
+
+const FLAGS_WITH_VALUE = new Set([
+  '--screenshot-dir',
+  '--screenshot-quality',
+  '--screenshot-format',
+  '--format',
+  '--width',
+  '--height',
+  '--margin',
+  '--scale',
+])
 
 const SESSION_NAME = /^[\w.-]{1,64}$/
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000
@@ -53,6 +54,62 @@ function withSession(
   return ['--session', session, ...globalArgs, ...args]
 }
 
+function positionalArgs(args: string[]): string[] {
+  const positionals: string[] = []
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (!arg.startsWith('-')) {
+      positionals.push(arg)
+    } else if (!arg.includes('=') && FLAGS_WITH_VALUE.has(arg)) {
+      index++
+    }
+  }
+  return positionals
+}
+
+function flagValue(args: string[], flag: string): string | undefined {
+  const prefixed = args.find((arg) => arg.startsWith(`${flag}=`))
+  if (prefixed) return prefixed.slice(flag.length + 1)
+  const index = args.lastIndexOf(flag)
+  return index >= 0 ? args[index + 1] : undefined
+}
+
+function outputSpec(args: string[]): FileSpec | undefined {
+  const [command, ...rest] = args
+  const positionals = positionalArgs(rest)
+  if (command === 'screenshot' && positionals.length === 0) {
+    const format = flagValue(rest, '--screenshot-format')?.toLowerCase()
+    return format === 'jpeg'
+      ? { ext: 'jpeg', contentType: 'image/jpeg' }
+      : { ext: 'png', contentType: 'image/png' }
+  }
+  if (command === 'pdf' && positionals.length === 0) {
+    return { ext: 'pdf', contentType: 'application/pdf' }
+  }
+  if (
+    (command === 'trace' || command === 'profiler') &&
+    positionals.length === 1 &&
+    positionals[0] === 'stop'
+  ) {
+    return { ext: 'json', contentType: 'application/json' }
+  }
+  if (
+    command === 'network' &&
+    positionals.length === 2 &&
+    positionals[0] === 'har' &&
+    positionals[1] === 'stop'
+  ) {
+    return { ext: 'har', contentType: 'application/json' }
+  }
+  if (
+    command === 'state' &&
+    positionals.length === 1 &&
+    positionals[0] === 'save'
+  ) {
+    return { ext: 'json', contentType: 'application/json' }
+  }
+}
+
 /**
  * Create a session-oriented browser client over any CommandRunner.
  *
@@ -71,6 +128,7 @@ export function createBrowserClient(
   }
   const globalArgs = [...(opts.globalArgs ?? [])]
   const ownsRunner = opts.ownsRunner ?? true
+  const recordings = new Map<string, { path: string; spec: FileSpec }>()
   let closed = false
 
   function assertOpen() {
@@ -83,26 +141,37 @@ export function createBrowserClient(
     useSession = session,
   ): Promise<BrowserCommandResult> {
     const [name, ...rest] = args
-    // File-producing commands: inject a remote path and pull the bytes back,
-    // unless the caller already supplied an output path themselves.
-    const fileSpec = name ? FILE_OUTPUT[name] : undefined
-    const positionals = rest.filter((a) => !a.startsWith('-'))
-    const wantsFile =
-      fileSpec &&
-      (fileSpec.subcommand === null
-        ? positionals.length === 0
-        : positionals.length === 1 && positionals[0] === fileSpec.subcommand)
+    // File-producing commands get a temporary remote output path when the
+    // caller did not provide one. The bytes are pulled back after completion.
+    let fileSpec = outputSpec(args)
+    const recordAction = name === 'record' ? positionalArgs(rest) : []
+    const startsRecording =
+      recordAction.length === 1 &&
+      (recordAction[0] === 'start' || recordAction[0] === 'restart')
+    const stopsRecording =
+      recordAction.length === 1 && recordAction[0] === 'stop'
 
     let finalArgs = withSession(useSession, globalArgs, args)
     let remotePath: string | undefined
-    if (wantsFile) {
+    if (fileSpec) {
       remotePath = `/tmp/agent-browser-${randomUUID()}.${fileSpec.ext}`
-      // screenshot <path> is the first positional for these commands
       finalArgs = withSession(useSession, globalArgs, [
         name!,
         ...rest,
         remotePath,
       ])
+    } else if (startsRecording) {
+      fileSpec = { ext: 'webm', contentType: 'video/webm' }
+      remotePath = `/tmp/agent-browser-${randomUUID()}.webm`
+      finalArgs = withSession(useSession, globalArgs, [
+        name!,
+        recordAction[0]!,
+        remotePath,
+      ])
+    } else if (stopsRecording) {
+      const recording = recordings.get(useSession)
+      remotePath = recording?.path
+      fileSpec = recording?.spec
     }
 
     const run = await runner.run('agent-browser', finalArgs, { timeoutMs })
@@ -113,7 +182,9 @@ export function createBrowserClient(
       stdout: run.stdout,
       stderr: run.stderr,
     }
-    if (result.ok && remotePath && fileSpec) {
+    if (result.ok && startsRecording && remotePath && fileSpec) {
+      recordings.set(useSession, { path: remotePath, spec: fileSpec })
+    } else if (result.ok && remotePath && fileSpec) {
       try {
         result.file = {
           path: remotePath,
@@ -127,6 +198,7 @@ export function createBrowserClient(
         }`
       }
     }
+    if (stopsRecording) recordings.delete(useSession)
     return result
   }
 

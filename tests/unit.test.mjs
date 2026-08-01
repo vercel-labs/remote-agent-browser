@@ -178,6 +178,49 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('collects screenshots when value flags are present', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    const result = await browser.exec('screenshot', {
+      flags: { screenshotFormat: 'jpeg', screenshotQuality: 80 },
+    })
+    assert.equal(result.file.contentType, 'image/jpeg')
+    assert.match(r.run.mock.calls[0].arguments[1].at(-1), /\.jpeg$/)
+    await browser.close()
+  })
+
+  it('collects HAR and saved state output', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    const har = await browser.exec('network', { args: ['har', 'stop'] })
+    const state = await browser.exec('state', { args: ['save'] })
+
+    assert.match(r.run.mock.calls[0].arguments[1].at(-1), /\.har$/)
+    assert.equal(har.file.contentType, 'application/json')
+    assert.match(r.run.mock.calls[1].arguments[1].at(-1), /\.json$/)
+    assert.equal(state.file.contentType, 'application/json')
+    await browser.close()
+  })
+
+  it('captures the recording path on start and reads it on stop', async () => {
+    const r = runner()
+    r.readFile.mock.mockImplementationOnce(async () => Buffer.from('video'))
+    const browser = createBrowserClient(r, { session: 's1' })
+    const started = await browser.exec('record', { args: ['start'] })
+    const stopped = await browser.exec('record', { args: ['stop'] })
+
+    const recordingPath = r.run.mock.calls[0].arguments[1].at(-1)
+    assert.match(recordingPath, /^\/tmp\/agent-browser-.*\.webm$/)
+    assert.equal(started.file, undefined)
+    assert.deepEqual(r.run.mock.calls[1].arguments[1], [
+      '--session', 's1', 'record', 'stop',
+    ])
+    assert.equal(r.readFile.mock.calls[0].arguments[0], recordingPath)
+    assert.equal(stopped.file.contentType, 'video/webm')
+    assert.deepEqual(stopped.file.bytes, Buffer.from('video'))
+    await browser.close()
+  })
+
   it('does not inject a path when the caller passes one', async () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })

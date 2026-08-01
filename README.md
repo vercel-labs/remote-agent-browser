@@ -91,6 +91,17 @@ const { file } = await browser.download('#export', { filename: 'report.csv' })
 await writeFile('report.csv', file.bytes)
 ```
 
+When no output path is supplied, other file-producing commands collect their
+artifact in `result.file`. This includes screenshots, PDFs, traces, profiles,
+HAR files, saved browser state, and recordings:
+
+```ts
+await browser.exec('network', { args: ['har', 'start'] })
+// ...interact with the page...
+const result = await browser.exec('network', { args: ['har', 'stop'] })
+await writeFile('capture.har', result.file.bytes)
+```
+
 ### Convenience methods
 
 - `browser.snapshot(url)` opens a page and returns its interactive snapshot.
