@@ -275,6 +275,22 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('surfaces command failures before attempting to parse JSON', async () => {
+    const r = runner()
+    r.run.mock.mockImplementationOnce(async () => ({
+      stdout: '',
+      stderr: 'element not found',
+      exitCode: 1,
+    }))
+    const browser = createBrowserClient(r, { session: 's1' })
+
+    await assert.rejects(browser.execJson('click', { args: ['@missing'] }), {
+      name: 'Error',
+      message: 'agent-browser click failed with exit code 1: element not found',
+    })
+    await browser.close()
+  })
+
   it('writes local buffers before uploading them', async () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })

@@ -256,6 +256,12 @@ export function createBrowserClient(
         ...execOpts,
         flags: { ...execOpts.flags, json: true },
       })
+      if (!result.ok) {
+        const details = result.stderr.trim() || result.stdout.trim() || 'unknown error'
+        throw new Error(
+          `agent-browser ${command} failed with exit code ${result.exitCode}: ${details}`,
+        )
+      }
       try {
         return { ...result, data: JSON.parse(result.stdout) }
       } catch (error) {
