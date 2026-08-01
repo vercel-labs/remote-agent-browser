@@ -261,6 +261,16 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('snapshots the current page without navigating', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    await browser.snapshot()
+    assert.deepEqual(r.run.mock.calls[0].arguments[1], [
+      '--session', 's1', 'snapshot', '-i', '--json',
+    ])
+    await browser.close()
+  })
+
   it('returns downloaded file bytes from the runner', async () => {
     const r = runner()
     r.readFile.mock.mockImplementationOnce(async () => Buffer.from('downloaded'))
@@ -274,6 +284,30 @@ describe('createBrowserClient', () => {
     assert.match(args[4], /^\/tmp\/agent-browser-.*-report\.csv$/)
     assert.deepEqual(file.bytes, Buffer.from('downloaded'))
     assert.equal(file, result.file)
+    await browser.close()
+  })
+
+  it('screenshots the current page with options as the first argument', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    await browser.screenshot({ fullPage: true })
+    assert.deepEqual(r.run.mock.calls[0].arguments[1].slice(0, 4), [
+      '--session', 's1', 'screenshot', '--full',
+    ])
+    assert.equal(r.run.mock.calls.length, 1)
+    await browser.close()
+  })
+
+  it('still opens a URL before capturing when one is supplied', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    await browser.snapshot('https://example.com')
+    assert.deepEqual(r.run.mock.calls[0].arguments[1], [
+      '--session', 's1', 'open', 'https://example.com',
+    ])
+    assert.deepEqual(r.run.mock.calls[1].arguments[1], [
+      '--session', 's1', 'snapshot', '-i', '--json',
+    ])
     await browser.close()
   })
 

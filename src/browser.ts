@@ -293,20 +293,22 @@ export function createBrowserClient(
       return { file: result.file, result }
     },
 
-    async snapshot(url, runOpts = {}) {
-      return this.run(
-        [
-          ['open', url],
-          ['snapshot', '-i', '--json'],
-        ],
-        runOpts,
-      )
+    async snapshot(urlOrOptions, opts = {}) {
+      const url = typeof urlOrOptions === 'string' ? urlOrOptions : undefined
+      const runOpts = typeof urlOrOptions === 'string' ? opts : (urlOrOptions ?? {})
+      const commands = url ? [['open', url]] : []
+      commands.push(['snapshot', '-i', '--json'])
+      return this.run(commands, runOpts)
     },
 
-    async screenshot(url, runOpts = {}) {
+    async screenshot(urlOrOptions, opts = {}) {
+      const url = typeof urlOrOptions === 'string' ? urlOrOptions : undefined
+      const runOpts = typeof urlOrOptions === 'string' ? opts : (urlOrOptions ?? {})
       const shotArgs = ['screenshot']
       if (runOpts.fullPage) shotArgs.push('--full')
-      const run = await this.run([['open', url], shotArgs], runOpts)
+      const commands = url ? [['open', url]] : []
+      commands.push(shotArgs)
+      const run = await this.run(commands, runOpts)
       const file = run.results.find((r) => r.file)?.file
       if (!file) {
         throw new Error(

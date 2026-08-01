@@ -104,8 +104,10 @@ await writeFile('capture.har', result.file.bytes)
 
 ### Convenience methods
 
-- `browser.snapshot(url)` opens a page and returns its interactive snapshot.
-- `browser.screenshot(url, { fullPage: true })` returns a PNG buffer.
+- `browser.snapshot(url?)` optionally opens a page, then returns its interactive
+  snapshot. Omit the URL to inspect the current page.
+- `browser.screenshot(url?, { fullPage: true })` optionally opens a page, then
+  returns a PNG buffer. Pass the options object first to capture the current page.
 - `browser.close()` closes the session and stops the Sandbox.
 
 All methods use the same disposable browser session until `close()` is called.

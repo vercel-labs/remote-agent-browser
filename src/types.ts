@@ -41,6 +41,8 @@ export type RunOptions = {
   timeoutMs?: number
 }
 
+export type ScreenshotOptions = RunOptions & { fullPage?: boolean }
+
 export type ExecOptions = {
   session?: string
   /** Positional CLI args, e.g. ["@e3"] for click. */
@@ -97,12 +99,15 @@ export interface AgentBrowser {
     selector: string,
     opts?: Pick<ExecOptions, 'session' | 'timeoutMs'> & { filename?: string },
   ): Promise<{ file: BrowserFile; result: BrowserCommandResult }>
-  /** Open a URL and return the interactive accessibility snapshot (JSON). */
-  snapshot(url: string, opts?: RunOptions): Promise<BrowserRunResult>
-  /** Open a URL and return a PNG screenshot. */
+  /** Optionally open a URL, then return the interactive accessibility snapshot. */
+  snapshot(
+    urlOrOptions?: string | RunOptions,
+    opts?: RunOptions,
+  ): Promise<BrowserRunResult>
+  /** Optionally open a URL, then return a PNG screenshot. */
   screenshot(
-    url: string,
-    opts?: RunOptions & { fullPage?: boolean },
+    urlOrOptions?: string | ScreenshotOptions,
+    opts?: ScreenshotOptions,
   ): Promise<{ png: Buffer; result: BrowserRunResult }>
   /** Close the browser session (and the sandbox when it owns it). */
   close(): Promise<void>
