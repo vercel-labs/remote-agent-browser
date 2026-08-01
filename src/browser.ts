@@ -5,6 +5,7 @@ import type {
   BrowserClientOptions,
   CommandRunner,
   ExecOptions,
+  JsonExecOptions,
   AgentBrowser,
   RunOptions,
 } from './types.js'
@@ -202,6 +203,65 @@ export function createBrowserClient(
     return result
   }
 
+  async function exec<T>(
+    command: string,
+    execOpts: JsonExecOptions,
+  ): Promise<BrowserCommandResult<T>>
+  async function exec(
+    command: string,
+    execOpts?: ExecOptions,
+  ): Promise<BrowserCommandResult>
+  async function exec<T>(
+    command: string,
+    execOpts: ExecOptions | JsonExecOptions = {},
+  ): Promise<BrowserCommandResult | BrowserCommandResult<T>> {
+    assertOpen()
+    const jsonOutput = execOpts.output === 'json'
+    const flags = jsonOutput
+      ? { ...execOpts.flags, json: true }
+      : execOpts.flags
+    const args = [
+      command,
+      ...(execOpts.args ?? []),
+      ...(flags ? flagsToArgs(flags) : []),
+    ]
+    const useSession = execOpts.session ?? session
+    if (!SESSION_NAME.test(useSession)) {
+      throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${useSession}"`)
+    }
+    const result = await execCommand(args, execOpts.timeoutMs, useSession)
+    if (!jsonOutput) return result
+    if (!result.ok) {
+      const details = result.stderr.trim() || result.stdout.trim() || 'unknown error'
+      throw new Error(
+        `agent-browser ${command} failed with exit code ${result.exitCode}: ${details}`,
+      )
+    }
+
+    let envelope: unknown
+    try {
+      envelope = JSON.parse(result.stdout)
+    } catch (error) {
+      throw new SyntaxError(
+        `agent-browser ${command} did not return valid JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
+    if (
+      typeof envelope !== 'object' ||
+      envelope === null ||
+      !('success' in envelope) ||
+      envelope.success !== true ||
+      !('data' in envelope)
+    ) {
+      throw new SyntaxError(
+        `agent-browser ${command} did not return a successful JSON envelope`,
+      )
+    }
+    return { ...result, data: envelope.data as T } as BrowserCommandResult<T>
+  }
+
   return {
     session,
 
@@ -237,41 +297,7 @@ export function createBrowserClient(
       }
     },
 
-    async exec(command, execOpts = {}) {
-      assertOpen()
-      const args = [
-        command,
-        ...(execOpts.args ?? []),
-        ...(execOpts.flags ? flagsToArgs(execOpts.flags) : []),
-      ]
-      const useSession = execOpts.session ?? session
-      if (!SESSION_NAME.test(useSession)) {
-        throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${useSession}"`)
-      }
-      return execCommand(args, execOpts.timeoutMs, useSession)
-    },
-
-    async execJson(command, execOpts = {}) {
-      const result = await this.exec(command, {
-        ...execOpts,
-        flags: { ...execOpts.flags, json: true },
-      })
-      if (!result.ok) {
-        const details = result.stderr.trim() || result.stdout.trim() || 'unknown error'
-        throw new Error(
-          `agent-browser ${command} failed with exit code ${result.exitCode}: ${details}`,
-        )
-      }
-      try {
-        return { ...result, data: JSON.parse(result.stdout) }
-      } catch (error) {
-        throw new SyntaxError(
-          `agent-browser ${command} did not return valid JSON: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        )
-      }
-    },
+    exec,
 
     async upload(selector, files, execOpts = {}) {
       assertOpen()

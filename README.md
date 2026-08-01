@@ -79,13 +79,17 @@ await browser.exec('find', {
 
 ### Typed JSON
 
-Use `execJson<T>()` for commands that support `--json`. It adds the flag, parses
-stdout, and keeps the normal command fields alongside the typed `data` value:
+Set `output: 'json'` for commands that support `--json`. `exec<T>()` adds the
+flag, unwraps the CLI response envelope, and keeps the normal command fields
+alongside the typed `data` value:
 
 ```ts
 type UrlResult = { url: string }
 
-const result = await browser.execJson<UrlResult>('get', { args: ['url'] })
+const result = await browser.exec<UrlResult>('get', {
+  args: ['url'],
+  output: 'json',
+})
 console.log(result.data.url, result.ok)
 ```
 
