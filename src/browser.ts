@@ -251,6 +251,22 @@ export function createBrowserClient(
       return execCommand(args, execOpts.timeoutMs, useSession)
     },
 
+    async execJson(command, execOpts = {}) {
+      const result = await this.exec(command, {
+        ...execOpts,
+        flags: { ...execOpts.flags, json: true },
+      })
+      try {
+        return { ...result, data: JSON.parse(result.stdout) }
+      } catch (error) {
+        throw new SyntaxError(
+          `agent-browser ${command} did not return valid JSON: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    },
+
     async upload(selector, files, execOpts = {}) {
       assertOpen()
       if (files.length === 0) throw new Error('upload requires at least one file')

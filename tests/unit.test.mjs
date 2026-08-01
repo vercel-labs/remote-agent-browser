@@ -246,6 +246,35 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('adds --json and returns parsed command data', async () => {
+    const r = runner()
+    r.run.mock.mockImplementationOnce(async () => ({
+      stdout: '{"url":"https://example.com"}',
+      stderr: '',
+      exitCode: 0,
+    }))
+    const browser = createBrowserClient(r, { session: 's1' })
+    const result = await browser.execJson('get', { args: ['url'] })
+
+    assert.deepEqual(r.run.mock.calls[0].arguments[1], [
+      '--session', 's1', 'get', 'url', '--json',
+    ])
+    assert.deepEqual(result.data, { url: 'https://example.com' })
+    assert.equal(result.ok, true)
+    assert.equal(result.stdout, '{"url":"https://example.com"}')
+    await browser.close()
+  })
+
+  it('reports invalid JSON with command context', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    await assert.rejects(browser.execJson('snapshot'), {
+      name: 'SyntaxError',
+      message: /agent-browser snapshot did not return valid JSON/,
+    })
+    await browser.close()
+  })
+
   it('writes local buffers before uploading them', async () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })

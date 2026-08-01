@@ -22,6 +22,9 @@ export type BrowserCommandResult = {
   file?: BrowserFile
 }
 
+/** A successful JSON parse alongside the underlying command result. */
+export type BrowserJsonResult<T> = BrowserCommandResult & { data: T }
+
 /** A local file to make available to an upload command. */
 export type BrowserUploadFile = { name: string; bytes: Buffer }
 
@@ -88,6 +91,11 @@ export interface AgentBrowser {
   run(commands: string[][], opts?: RunOptions): Promise<BrowserRunResult>
   /** Run one agent-browser command by name. */
   exec(command: string, opts?: ExecOptions): Promise<BrowserCommandResult>
+  /** Run one command with --json and parse its typed response. */
+  execJson<T = unknown>(
+    command: string,
+    opts?: ExecOptions,
+  ): Promise<BrowserJsonResult<T>>
   /** Upload one or more local buffers through a file input. */
   upload(
     selector: string,
