@@ -51,7 +51,7 @@ describe('createAgentBrowser', () => {
       const browser = await createAgentBrowser({
         image: 'remote-agent-browser:v1',
         session: 'agent-session',
-        globalArgs: ['--color-scheme', 'dark'],
+        args: ['--color-scheme', 'dark'],
       })
 
       assert.equal(browser.session, 'agent-session')
@@ -121,11 +121,11 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
-  it('places global args before every command and close', async () => {
+  it('places client args before every command and close', async () => {
     const r = runner()
     const browser = createBrowserClient(r, {
       session: 's1',
-      globalArgs: ['--color-scheme', 'dark', '--enable', 'react-devtools'],
+      args: ['--color-scheme', 'dark', '--enable', 'react-devtools'],
     })
 
     await browser.exec('open', { args: ['https://example.com'] })

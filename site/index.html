@@ -75,7 +75,7 @@
         <pre><code><span class="token-keyword">import</span> { createAgentBrowser } <span class="token-keyword">from</span> <span class="token-string">'remote-agent-browser'</span>
 
 <span class="token-keyword">const</span> browser = <span class="token-keyword">await</span> createAgentBrowser({
-  globalArgs: [<span class="token-string">'--color-scheme'</span>, <span class="token-string">'dark'</span>],
+  args: [<span class="token-string">'--color-scheme'</span>, <span class="token-string">'dark'</span>],
 })
 
 <span class="token-keyword">try</span> {
@@ -104,7 +104,7 @@
           <div>
             <dt><code>createAgentBrowser(options?)</code></dt>
             <dd>
-              Start a disposable browser Sandbox. Use <code>globalArgs</code>
+              Start a disposable browser Sandbox. Use <code>args</code>
               for launch settings shared by every command.
             </dd>
           </div>

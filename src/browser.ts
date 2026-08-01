@@ -49,10 +49,10 @@ export function flagsToArgs(flags: Record<string, unknown>): string[] {
 
 function withSession(
   session: string,
-  globalArgs: string[],
-  args: string[],
+  clientArgs: string[],
+  commandArgs: string[],
 ): string[] {
-  return ['--session', session, ...globalArgs, ...args]
+  return ['--session', session, ...clientArgs, ...commandArgs]
 }
 
 function positionalArgs(args: string[]): string[] {
@@ -127,7 +127,7 @@ export function createBrowserClient(
   if (!SESSION_NAME.test(session)) {
     throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${session}"`)
   }
-  const globalArgs = [...(opts.globalArgs ?? [])]
+  const clientArgs = [...(opts.args ?? [])]
   const ownsRunner = opts.ownsRunner ?? true
   const recordings = new Map<string, { path: string; spec: FileSpec }>()
   let closed = false
@@ -152,11 +152,11 @@ export function createBrowserClient(
     const stopsRecording =
       recordAction.length === 1 && recordAction[0] === 'stop'
 
-    let finalArgs = withSession(useSession, globalArgs, args)
+    let finalArgs = withSession(useSession, clientArgs, args)
     let remotePath: string | undefined
     if (fileSpec) {
       remotePath = `/tmp/agent-browser-${randomUUID()}.${fileSpec.ext}`
-      finalArgs = withSession(useSession, globalArgs, [
+      finalArgs = withSession(useSession, clientArgs, [
         name!,
         ...rest,
         remotePath,
@@ -164,7 +164,7 @@ export function createBrowserClient(
     } else if (startsRecording) {
       fileSpec = { ext: 'webm', contentType: 'video/webm' }
       remotePath = `/tmp/agent-browser-${randomUUID()}.webm`
-      finalArgs = withSession(useSession, globalArgs, [
+      finalArgs = withSession(useSession, clientArgs, [
         name!,
         recordAction[0]!,
         remotePath,
@@ -373,7 +373,7 @@ export function createBrowserClient(
       closed = true
       // Close the CLI session's browser first so the sandbox can stop cleanly.
       await runner
-        .run('agent-browser', withSession(session, globalArgs, ['close']), {
+        .run('agent-browser', withSession(session, clientArgs, ['close']), {
           timeoutMs: 15_000,
         })
         .catch(() => {})

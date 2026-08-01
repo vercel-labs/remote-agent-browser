@@ -16,8 +16,8 @@ export type CreateAgentBrowserOptions = {
   vcpus?: number
   /** Extra env vars for every command inside the sandbox. */
   env?: Record<string, string>
-  /** agent-browser global options inserted before every command. */
-  globalArgs?: string[]
+  /** agent-browser CLI arguments inserted before every command. */
+  args?: string[]
 }
 
 /**
@@ -53,7 +53,7 @@ export async function createAgentBrowser(
   })
   return createBrowserClient(runner, {
     session: opts.session,
-    globalArgs: opts.globalArgs,
+    args: opts.args,
     ownsRunner: true,
   })
 }

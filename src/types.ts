@@ -58,8 +58,8 @@ export type JsonExecOptions = Omit<ExecOptions, 'output'> & { output: 'json' }
 
 export type BrowserClientOptions = {
   session?: string
-  /** agent-browser global options inserted before every command. */
-  globalArgs?: string[]
+  /** agent-browser CLI arguments inserted before every command. */
+  args?: string[]
   /** Whether close() also tears down the command runner. Default: true. */
   ownsRunner?: boolean
 }
