@@ -1,6 +1,6 @@
 import { createBrowserClient } from './browser.js'
 import { provisionBrowserSandbox } from './vercel.js'
-import type { AgentBrowser } from './types.js'
+import type { AgentBrowser, ProxyOptions } from './types.js'
 
 export type CreateAgentBrowserOptions = {
   /** Named CLI session; state (page, cookies, refs) persists across calls. */
@@ -18,6 +18,8 @@ export type CreateAgentBrowserOptions = {
   env?: Record<string, string>
   /** agent-browser CLI arguments inserted before every command. */
   args?: string[]
+  /** Proxy configuration fixed for this browser's lifetime. */
+  proxy?: ProxyOptions
 }
 
 /**
@@ -54,6 +56,7 @@ export async function createAgentBrowser(
   return createBrowserClient(runner, {
     session: opts.session,
     args: opts.args,
+    proxy: opts.proxy,
     ownsRunner: true,
   })
 }

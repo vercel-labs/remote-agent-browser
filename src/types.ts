@@ -56,10 +56,21 @@ export type ExecOptions = {
 
 export type JsonExecOptions = Omit<ExecOptions, 'output'> & { output: 'json' }
 
+export type ProxyOptions =
+  | string
+  | {
+      /** Proxy server URL, optionally including authentication. */
+      url: string
+      /** Host patterns that should connect directly instead of using the proxy. */
+      bypass?: string | readonly string[]
+    }
+
 export type BrowserClientOptions = {
   session?: string
   /** agent-browser CLI arguments inserted before every command. */
   args?: string[]
+  /** Proxy configuration fixed for this client's lifetime. */
+  proxy?: ProxyOptions
   /** Whether close() also tears down the command runner. Default: true. */
   ownsRunner?: boolean
 }

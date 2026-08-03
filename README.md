@@ -44,11 +44,33 @@ Starts a fresh browser in a disposable Vercel Sandbox. Always call
 
 Pass agent-browser global options with `args`. They are placed before
 every command, which is required for launch settings such as color scheme,
-profiles, proxies, and init scripts:
+profiles, and init scripts:
 
 ```ts
 const browser = await AgentBrowser.create({
   args: ['--color-scheme', 'dark', '--enable', 'react-devtools'],
+})
+```
+
+### Proxy
+
+Set a proxy for the browser client's lifetime with `proxy`. Use the object form
+to configure hosts that should connect directly:
+
+```ts
+const browser = await AgentBrowser.create({
+  proxy: {
+    url: 'http://user:password@proxy.example.com:8080',
+    bypass: ['localhost', '*.internal.example.com'],
+  },
+})
+```
+
+For a proxy without bypass rules, pass its URL directly:
+
+```ts
+const browser = await AgentBrowser.create({
+  proxy: 'http://proxy.example.com:8080',
 })
 ```
 

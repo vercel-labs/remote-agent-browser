@@ -20,5 +20,6 @@ export type {
   ExecOptions,
   JsonExecOptions,
   KeepaliveOptions,
+  ProxyOptions,
   RunOptions,
 } from './types.js'

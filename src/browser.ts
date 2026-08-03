@@ -7,6 +7,7 @@ import type {
   ExecOptions,
   JsonExecOptions,
   KeepaliveOptions,
+  ProxyOptions,
   AgentBrowser,
   RunOptions,
 } from './types.js'
@@ -26,6 +27,47 @@ const FLAGS_WITH_VALUE = new Set([
 
 const SESSION_NAME = /^[\w.-]{1,64}$/
 const DEFAULT_COMMAND_TIMEOUT_MS = 60_000
+const PROXY_FLAGS = ['--proxy', '--proxy-bypass']
+
+function proxyEnvironment(
+  proxy: ProxyOptions | undefined,
+): Record<string, string> | undefined {
+  if (proxy === undefined) return undefined
+  const url = typeof proxy === 'string' ? proxy : proxy.url
+  const bypass = typeof proxy === 'string' ? undefined : proxy.bypass
+  if (url.length === 0) {
+    throw new RangeError('proxy url must not be empty')
+  }
+  const env: Record<string, string> = {
+    AGENT_BROWSER_PROXY: url,
+  }
+  if (bypass !== undefined) {
+    const serialized =
+      typeof bypass === 'string' ? bypass : bypass.join(',')
+    if (serialized.length === 0) {
+      throw new RangeError('proxy bypass must not be empty')
+    }
+    env.AGENT_BROWSER_PROXY_BYPASS = serialized
+  }
+  return env
+}
+
+function hasProxyFlag(args: string[]): boolean {
+  return args.some((arg) =>
+    PROXY_FLAGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`)),
+  )
+}
+
+function proxyOutputRedactor(proxy: ProxyOptions | undefined) {
+  if (proxy === undefined) return (value: string) => value
+  const url = typeof proxy === 'string' ? proxy : proxy.url
+  const redacted = url.replace(
+    /^([a-z][a-z\d+.-]*:\/\/)([^/@]+)@/i,
+    '$1***:***@',
+  )
+  if (redacted === url) return (value: string) => value
+  return (value: string) => value.replaceAll(url, redacted)
+}
 
 function safeFilename(name: string): string {
   const filename = name.split(/[\\/]/).at(-1)?.replace(/[^\w.-]/g, '-')
@@ -129,6 +171,11 @@ export function createBrowserClient(
     throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${session}"`)
   }
   const clientArgs = [...(opts.args ?? [])]
+  if (opts.proxy !== undefined && hasProxyFlag(clientArgs)) {
+    throw new Error('proxy cannot be combined with --proxy or --proxy-bypass args')
+  }
+  const clientEnv = proxyEnvironment(opts.proxy)
+  const redactProxy = proxyOutputRedactor(opts.proxy)
   const ownsRunner = opts.ownsRunner ?? true
   const recordings = new Map<string, { path: string; spec: FileSpec }>()
   let closed = false
@@ -176,13 +223,26 @@ export function createBrowserClient(
       fileSpec = recording?.spec
     }
 
-    const run = await runner.run('agent-browser', finalArgs, { timeoutMs })
+    let run: Awaited<ReturnType<CommandRunner['run']>>
+    try {
+      run = await runner.run('agent-browser', finalArgs, {
+        timeoutMs,
+        env: clientEnv,
+      })
+    } catch (error) {
+      if (error instanceof Error) {
+        const redacted = new Error(redactProxy(error.message))
+        redacted.name = error.name
+        throw redacted
+      }
+      throw error
+    }
     const result: BrowserCommandResult = {
       args,
       ok: run.exitCode === 0,
       exitCode: run.exitCode,
-      stdout: run.stdout,
-      stderr: run.stderr,
+      stdout: redactProxy(run.stdout),
+      stderr: redactProxy(run.stderr),
     }
     if (result.ok && startsRecording && remotePath && fileSpec) {
       recordings.set(useSession, { path: remotePath, spec: fileSpec })
@@ -384,6 +444,7 @@ export function createBrowserClient(
       await runner
         .run('agent-browser', withSession(session, clientArgs, ['close']), {
           timeoutMs: 15_000,
+          env: clientEnv,
         })
         .catch(() => {})
       if (ownsRunner) await runner.close()
