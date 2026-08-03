@@ -231,9 +231,8 @@ export function createBrowserClient(
       })
     } catch (error) {
       if (error instanceof Error) {
-        const redacted = new Error(redactProxy(error.message))
-        redacted.name = error.name
-        throw redacted
+        error.message = redactProxy(error.message)
+        if (error.stack) error.stack = redactProxy(error.stack)
       }
       throw error
     }

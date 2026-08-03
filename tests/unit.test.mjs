@@ -239,6 +239,38 @@ describe('createBrowserClient', () => {
     })
   })
 
+  it('redacts runner errors without replacing the original error', async () => {
+    const proxy = 'http://user:password@proxy.example.com:8080'
+    const cause = new Error('connection refused')
+    class RunnerError extends Error {
+      code = 'PROXY_FAILURE'
+    }
+    const failure = new RunnerError(`failed to connect through ${proxy}`, {
+      cause,
+    })
+    failure.stack = `RunnerError: failed to connect through ${proxy}\n    at runner`
+    const r = runner()
+    r.run.mock.mockImplementationOnce(async () => {
+      throw failure
+    })
+    const browser = createBrowserClient(r, { session: 's1', proxy })
+
+    await assert.rejects(browser.exec('open'), (error) => {
+      assert.equal(error, failure)
+      assert.ok(error instanceof RunnerError)
+      assert.equal(error.cause, cause)
+      assert.equal(error.code, 'PROXY_FAILURE')
+      assert.equal(
+        error.message,
+        'failed to connect through http://***:***@proxy.example.com:8080',
+      )
+      assert.equal(error.stack.includes(proxy), false)
+      return true
+    })
+
+    await browser.close()
+  })
+
   it('rejects typed proxy configuration combined with proxy args', () => {
     const r = runner()
     assert.throws(
