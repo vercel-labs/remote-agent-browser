@@ -64,6 +64,15 @@ export type BrowserClientOptions = {
   ownsRunner?: boolean
 }
 
+export type KeepaliveOptions = {
+  /** Remaining sandbox lifetime to maintain. Defaults to its creation timeout. */
+  timeoutMs?: number
+  /** Heartbeat cadence. Defaults to half the timeout, capped at 5 minutes. */
+  intervalMs?: number
+  /** Optional observer for best-effort heartbeat failures. */
+  onError?: (error: unknown) => void
+}
+
 /**
  * Minimal command executor the browser client needs. Implemented by the
  * Vercel Sandbox adapter; anything with the same shape can back a
@@ -82,6 +91,8 @@ export interface CommandRunner {
   writeFile(path: string, bytes: Buffer): Promise<void>
   /** Tear the remote environment down. */
   close(): Promise<void>
+  /** Keep the remote environment alive until the returned stop function runs. */
+  keepalive?(opts?: KeepaliveOptions): () => void
 }
 
 /** Session-oriented remote browser client. */
@@ -118,6 +129,11 @@ export interface AgentBrowser {
     urlOrOptions?: string | ScreenshotOptions,
     opts?: ScreenshotOptions,
   ): Promise<{ png: Buffer; result: BrowserRunResult }>
+  /**
+   * Keep the backing Sandbox alive across idle gaps. Call the returned stop
+   * function in a finally block so the Sandbox can expire when work finishes.
+   */
+  keepalive(opts?: KeepaliveOptions): () => void
   /** Close the browser session (and the sandbox when it owns it). */
   close(): Promise<void>
 }

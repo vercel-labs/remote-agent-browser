@@ -31,8 +31,11 @@ function makeSandbox(handler) {
   return {
     calls,
     writes,
+    name: 'browser-test123',
     sandboxId: 'sbx_test123',
     status: 'running',
+    expiresAt: new Date(Date.now() + 1_000),
+    extendTimeout: mock.fn(async () => {}),
     stop: mock.fn(async () => {}),
     async runCommand(opts) {
       calls.push(opts)
@@ -50,6 +53,7 @@ describe('AgentBrowser.create', () => {
   it('creates a session client from the requested image and owns its sandbox', async () => {
     const sandbox = makeSandbox()
     const create = mock.method(Sandbox, 'create', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
 
     try {
       assert.equal(AgentBrowser.create, createAgentBrowser)
@@ -75,10 +79,21 @@ describe('AgentBrowser.create', () => {
         'https://example.com',
       ])
 
+      const stopKeepalive = browser.keepalive({
+        timeoutMs: 10_000,
+        intervalMs: 1_000,
+      })
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.equal(sandbox.extendTimeout.mock.calls.length, 1)
+      const extensionMs = sandbox.extendTimeout.mock.calls[0].arguments[0]
+      assert.ok(extensionMs >= 8_000 && extensionMs <= 10_000)
+      stopKeepalive()
+
       await browser.close()
       assert.equal(sandbox.stop.mock.calls.length, 1)
     } finally {
       create.mock.restore()
+      get.mock.restore()
     }
   })
 })
@@ -111,6 +126,28 @@ describe('createBrowserClient', () => {
     readFile: mock.fn(async () => Buffer.from('png-bytes')),
     writeFile: mock.fn(async () => {}),
     close: mock.fn(async () => {}),
+    keepalive: mock.fn(() => mock.fn()),
+  })
+
+  it('delegates keepalive to the runner', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    const options = { timeoutMs: 20_000, intervalMs: 5_000 }
+    const stop = browser.keepalive(options)
+
+    assert.deepEqual(r.keepalive.mock.calls[0].arguments[0], options)
+    stop()
+    assert.equal(r.keepalive.mock.calls[0].result.mock.calls.length, 1)
+    await browser.close()
+  })
+
+  it('rejects keepalive when the runner cannot renew its environment', async () => {
+    const r = runner()
+    delete r.keepalive
+    const browser = createBrowserClient(r, { session: 's1' })
+
+    assert.throws(() => browser.keepalive(), /does not support keepalive/)
+    await browser.close()
   })
 
   it('prefixes every command with the session', async () => {

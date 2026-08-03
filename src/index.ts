@@ -19,5 +19,6 @@ export type {
   CommandRunner,
   ExecOptions,
   JsonExecOptions,
+  KeepaliveOptions,
   RunOptions,
 } from './types.js'

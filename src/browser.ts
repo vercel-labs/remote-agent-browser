@@ -6,6 +6,7 @@ import type {
   CommandRunner,
   ExecOptions,
   JsonExecOptions,
+  KeepaliveOptions,
   AgentBrowser,
   RunOptions,
 } from './types.js'
@@ -366,6 +367,14 @@ export function createBrowserClient(
         )
       }
       return { png: file.bytes, result: run }
+    },
+
+    keepalive(opts: KeepaliveOptions = {}) {
+      assertOpen()
+      if (!runner.keepalive) {
+        throw new Error('the command runner does not support keepalive')
+      }
+      return runner.keepalive(opts)
     },
 
     async close() {

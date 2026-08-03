@@ -127,4 +127,24 @@ await writeFile('capture.har', result.file.bytes)
 
 All methods use the same disposable browser session until `close()` is called.
 
+### Keepalive
+
+Keep the Sandbox alive across idle gaps during long-running work. Always stop
+the heartbeat in a `finally` block; after it stops, the Sandbox expires at its
+normal timeout unless it is closed earlier:
+
+```ts
+const stopKeepalive = browser.keepalive()
+try {
+  await runLongAgentTurn(browser)
+} finally {
+  stopKeepalive()
+}
+```
+
+By default, each heartbeat restores the wall-clock timeout configured by
+`AgentBrowser.create()` and runs halfway through that window, capped at five
+minutes. Override either value with `timeoutMs` and `intervalMs`. Renewal is
+best-effort; pass `onError` to observe failures.
+
 Container image and development details are in [docs.md](./docs.md).

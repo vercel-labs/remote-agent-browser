@@ -1,5 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
-import type { CommandRunner } from './types.js'
+import type { CommandRunner, KeepaliveOptions } from './types.js'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 export const DEFAULT_BROWSER_IMAGE = 'remote-agent-browser:latest'
@@ -13,10 +13,17 @@ const BASE_ENV = {
 export class SandboxRunner implements CommandRunner {
   private sandbox: Sandbox
   private env: Record<string, string>
+  private timeoutMs: number
+  private keepaliveStops = new Set<() => void>()
 
-  constructor(sandbox: Sandbox, env: Record<string, string>) {
+  constructor(
+    sandbox: Sandbox,
+    env: Record<string, string>,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  ) {
     this.sandbox = sandbox
     this.env = env
+    this.timeoutMs = timeoutMs
   }
 
   async run(
@@ -72,7 +79,71 @@ export class SandboxRunner implements CommandRunner {
     await this.sandbox.writeFiles([{ path, content: bytes }])
   }
 
+  /** Restore a sliding idle window without cumulatively adding that window. */
+  private async renewLifetime(timeoutMs: number): Promise<void> {
+    // Poll without resuming: a late heartbeat must not resurrect an already
+    // expired Sandbox whose in-memory browser state is gone.
+    const sandbox = await Sandbox.get({
+      name: this.sandbox.name,
+      resume: false,
+    })
+    if (sandbox.status !== 'running') return
+    this.sandbox = sandbox
+    const targetExpiresAt = Date.now() + timeoutMs
+    const currentExpiresAt = sandbox.expiresAt?.getTime()
+    const extensionMs =
+      currentExpiresAt === undefined
+        ? timeoutMs
+        : Math.ceil(targetExpiresAt - currentExpiresAt)
+    if (extensionMs > 0) await sandbox.extendTimeout(extensionMs)
+  }
+
+  keepalive(opts: KeepaliveOptions = {}): () => void {
+    const timeoutMs = opts.timeoutMs ?? this.timeoutMs
+    const intervalMs =
+      opts.intervalMs ?? Math.min(5 * 60 * 1000, Math.floor(timeoutMs / 2))
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new RangeError('keepalive timeoutMs must be greater than 0')
+    }
+    if (
+      !Number.isFinite(intervalMs) ||
+      intervalMs <= 0 ||
+      intervalMs >= timeoutMs
+    ) {
+      throw new RangeError(
+        'keepalive intervalMs must be greater than 0 and less than timeoutMs',
+      )
+    }
+
+    let stopped = false
+    let renewing = false
+    const tick = async () => {
+      if (stopped || renewing) return
+      renewing = true
+      try {
+        await this.renewLifetime(timeoutMs)
+      } catch (error) {
+        opts.onError?.(error)
+      } finally {
+        renewing = false
+      }
+    }
+    const timer = setInterval(() => void tick(), intervalMs)
+    timer.unref?.()
+    void tick()
+
+    const stop = () => {
+      if (stopped) return
+      stopped = true
+      clearInterval(timer)
+      this.keepaliveStops.delete(stop)
+    }
+    this.keepaliveStops.add(stop)
+    return stop
+  }
+
   async close(): Promise<void> {
+    for (const stop of [...this.keepaliveStops]) stop()
     await this.sandbox.stop().catch(() => {})
   }
 }
@@ -93,14 +164,15 @@ export async function provisionBrowserSandbox(opts: {
   const image =
     opts.image ?? process.env.REMOTE_AGENT_BROWSER_IMAGE ?? DEFAULT_BROWSER_IMAGE
   const env = { ...BASE_ENV, ...opts.env }
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const sandbox = await Sandbox.create({
     image,
     resources: { vcpus: opts.vcpus ?? 2 },
-    timeout: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    timeout: timeoutMs,
     ports: [],
     env,
     persistent: false,
   })
 
-  return new SandboxRunner(sandbox, env)
+  return new SandboxRunner(sandbox, env, timeoutMs)
 }
