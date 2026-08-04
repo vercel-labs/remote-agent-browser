@@ -27,37 +27,38 @@ for image_tag in "${image_tags[@]}"; do
   fi
 done
 
-for command_name in vercel docker; do
-  if ! command -v "$command_name" >/dev/null 2>&1; then
-    echo "Required command not found: $command_name" >&2
-    exit 1
-  fi
-done
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Required command not found: docker" >&2
+  exit 1
+fi
 
 if ! docker buildx version >/dev/null 2>&1; then
   echo "Docker Buildx is required" >&2
   exit 1
 fi
 
-credentials_file="$(mktemp "${TMPDIR:-/tmp}/remote-agent-browser-env.XXXXXX")"
-trap 'rm -f "$credentials_file"' EXIT
-
-(
-  cd "$project_dir"
-  vercel_args=(env pull "$credentials_file" --yes --environment=development)
-  if [[ -n "${VERCEL_TOKEN:-}" ]]; then
-    vercel_args+=(--token "$VERCEL_TOKEN")
+if [[ -z "${VERCEL_OIDC_TOKEN:-}" ]]; then
+  if ! command -v vercel >/dev/null 2>&1; then
+    echo "Set VERCEL_OIDC_TOKEN or install the Vercel CLI" >&2
+    exit 1
   fi
-  vercel "${vercel_args[@]}"
-)
 
-set -a
-# shellcheck disable=SC1090
-source "$credentials_file"
-set +a
+  credentials_file="$(mktemp "${TMPDIR:-/tmp}/remote-agent-browser-env.XXXXXX")"
+  trap 'rm -f "$credentials_file"' EXIT
+
+  (
+    cd "$project_dir"
+    vercel env pull "$credentials_file" --yes --environment=development
+  )
+
+  set -a
+  # shellcheck disable=SC1090
+  source "$credentials_file"
+  set +a
+fi
 
 if [[ -z "${VERCEL_OIDC_TOKEN:-}" ]]; then
-  echo "VERCEL_OIDC_TOKEN was not returned by vercel env pull" >&2
+  echo "VERCEL_OIDC_TOKEN is required to publish to VCR" >&2
   exit 1
 fi
 

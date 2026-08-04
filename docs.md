@@ -25,19 +25,13 @@ Pass one or more tags to publish immutable and moving references in one build:
 ./scripts/publish-image.sh v1.2.0 latest
 ```
 
-The script pulls a fresh project-scoped `VERCEL_OIDC_TOKEN` into a temporary
-file, logs Docker in to VCR, and builds and pushes both supported Linux
-architectures. VCR then optimizes the image for Vercel Sandbox.
-
-Tag pushes run this automatically before publishing npm. The repository needs
-`VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` GitHub Actions secrets
-for the `remote-agent-browser` Vercel project. A release such as `v1.2.0`
-publishes both `remote-agent-browser:v1.2.0` and
-`remote-agent-browser:latest` from the same multi-platform build.
+The script uses `VERCEL_OIDC_TOKEN` from the local environment when available.
+Otherwise, it pulls a fresh project-scoped token through the authenticated,
+linked Vercel CLI. It then logs Docker in to VCR and builds and pushes both
+supported Linux architectures. VCR optimizes the image for Vercel Sandbox.
 
 VCR repositories are project-scoped. To publish the image into another Vercel
-project, link that project (or provide its org and project ids) and override
-the destination:
+project, link that project and override the destination:
 
 ```bash
 REMOTE_AGENT_BROWSER_IMAGE_REPOSITORY="vcr.vercel.com/acme/my-project/remote-agent-browser" \

@@ -12,10 +12,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -27,10 +23,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node --run typecheck
       - run: node --run test
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - run: npm install --global vercel@latest
-      - name: Publish browser image
-        run: ./scripts/publish-image.sh "$GITHUB_REF_NAME" latest
       # npm CLI performs the npmjs Trusted Publishing OIDC exchange.
       - run: npm publish
