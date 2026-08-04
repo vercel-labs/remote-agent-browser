@@ -3,8 +3,8 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [tag]"
-  echo "Build and publish the browser image. The tag defaults to latest."
+  echo "Usage: $0 [tag ...]"
+  echo "Build and publish the browser image under each tag. Defaults to latest."
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -12,19 +12,20 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-if (( $# > 1 )); then
-  usage >&2
-  exit 2
+if (( $# == 0 )); then
+  image_tags=(latest)
+else
+  image_tags=("$@")
 fi
-
-image_tag="${1:-latest}"
-image_repository="vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser"
+image_repository="${REMOTE_AGENT_BROWSER_IMAGE_REPOSITORY:-vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser}"
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ ! "$image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-  echo "Invalid Docker image tag: $image_tag" >&2
-  exit 2
-fi
+for image_tag in "${image_tags[@]}"; do
+  if [[ ! "$image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+    echo "Invalid Docker image tag: $image_tag" >&2
+    exit 2
+  fi
+done
 
 for command_name in vercel docker; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -43,7 +44,11 @@ trap 'rm -f "$credentials_file"' EXIT
 
 (
   cd "$project_dir"
-  vercel env pull "$credentials_file" --yes --environment=development
+  vercel_args=(env pull "$credentials_file" --yes --environment=development)
+  if [[ -n "${VERCEL_TOKEN:-}" ]]; then
+    vercel_args+=(--token "$VERCEL_TOKEN")
+  fi
+  vercel "${vercel_args[@]}"
 )
 
 set -a
@@ -60,13 +65,21 @@ printf '%s' "$VERCEL_OIDC_TOKEN" | docker login vcr.vercel.com \
   --username oidc \
   --password-stdin
 
-image_ref="$image_repository:$image_tag"
-echo "Publishing $image_ref"
+tag_args=()
+image_refs=()
+for image_tag in "${image_tags[@]}"; do
+  image_ref="$image_repository:$image_tag"
+  image_refs+=("$image_ref")
+  tag_args+=(--tag "$image_ref")
+done
+
+echo "Publishing ${image_refs[*]}"
 
 docker buildx build \
   -f "$project_dir/Dockerfile.sandbox" \
   --platform linux/amd64,linux/arm64 \
-  --output "type=image,name=$image_ref,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true" \
+  "${tag_args[@]}" \
+  --output "type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true" \
   "$project_dir"
 
-echo "Published $image_ref"
+echo "Published ${image_refs[*]}"
