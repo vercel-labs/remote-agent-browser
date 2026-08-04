@@ -21,6 +21,10 @@ references. `close()` closes Chromium and stops the Sandbox.
   PNG and save it locally.
 - [Agent Bash tool integration](./examples/agent-bash-tool/README.md) — let an
   agent use normal `agent-browser <command>` invocations through its Bash tool.
+- [Bypass BotID for trusted automation](./examples/botid-bypass/README.md) —
+  pass a Vercel automation bypass token as an origin-scoped header.
+- [Route traffic through a proxy](./examples/proxy/README.md) — configure an
+  authenticated proxy and verify the browser's egress address.
 
 ## Authentication
 
