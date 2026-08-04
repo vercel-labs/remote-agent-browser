@@ -71,6 +71,8 @@ export type BrowserClientOptions = {
   args?: string[]
   /** Proxy configuration fixed for this client's lifetime. */
   proxy?: ProxyOptions
+  /** Run `agent-browser close` before closing the runner. Default: true. */
+  closeSession?: boolean
   /** Whether close() also tears down the command runner. Default: true. */
   ownsRunner?: boolean
 }
@@ -82,6 +84,13 @@ export type KeepaliveOptions = {
   intervalMs?: number
   /** Optional observer for best-effort heartbeat failures. */
   onError?: (error: unknown) => void
+}
+
+export type BrowserRuntimeResetEvent = {
+  /** Stable logical browser id supplied by the caller. */
+  id: string
+  /** Why the backing runtime no longer has its previous in-memory state. */
+  reason: 'resumed'
 }
 
 /**
@@ -147,4 +156,17 @@ export interface AgentBrowser {
   keepalive(opts?: KeepaliveOptions): () => void
   /** Close the browser session (and the sandbox when it owns it). */
   close(): Promise<void>
+}
+
+/** A lazily acquired browser whose logical identity survives runtime expiry. */
+export interface AgentBrowserSession extends AgentBrowser {
+  /** Stable caller-defined identity. The backing runtime may be replaced. */
+  readonly id: string
+  /** Observe when an expired runtime resumes with fresh in-memory browser state. */
+  on(
+    event: 'reset',
+    listener: (event: BrowserRuntimeResetEvent) => void,
+  ): () => void
+  /** Permanently remove the runtime currently associated with this id. */
+  destroy(): Promise<void>
 }

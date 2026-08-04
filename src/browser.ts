@@ -177,6 +177,7 @@ export function createBrowserClient(
   const clientEnv = proxyEnvironment(opts.proxy)
   const redactProxy = proxyOutputRedactor(opts.proxy)
   const ownsRunner = opts.ownsRunner ?? true
+  const closeSession = opts.closeSession ?? true
   const recordings = new Map<string, { path: string; spec: FileSpec }>()
   let closed = false
 
@@ -440,12 +441,14 @@ export function createBrowserClient(
       if (closed) return
       closed = true
       // Close the CLI session's browser first so the sandbox can stop cleanly.
-      await runner
-        .run('agent-browser', withSession(session, clientArgs, ['close']), {
-          timeoutMs: 15_000,
-          env: clientEnv,
-        })
-        .catch(() => {})
+      if (closeSession) {
+        await runner
+          .run('agent-browser', withSession(session, clientArgs, ['close']), {
+            timeoutMs: 15_000,
+            env: clientEnv,
+          })
+          .catch(() => {})
+      }
       if (ownsRunner) await runner.close()
     },
   }

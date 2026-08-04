@@ -1,6 +1,14 @@
 import { createBrowserClient } from './browser.js'
-import { provisionBrowserSandbox } from './vercel.js'
-import type { AgentBrowser, ProxyOptions } from './types.js'
+import {
+  createNamedBrowserSandboxRunner,
+  provisionBrowserSandbox,
+} from './vercel.js'
+import type {
+  AgentBrowser,
+  AgentBrowserSession,
+  BrowserRuntimeResetEvent,
+  ProxyOptions,
+} from './types.js'
 
 export type CreateAgentBrowserOptions = {
   /** Named CLI session; state (page, cookies, refs) persists across calls. */
@@ -20,6 +28,11 @@ export type CreateAgentBrowserOptions = {
   args?: string[]
   /** Proxy configuration fixed for this browser's lifetime. */
   proxy?: ProxyOptions
+}
+
+export type CreateAgentBrowserSessionOptions = CreateAgentBrowserOptions & {
+  /** Stable logical identity used to find this browser across processes. */
+  id: string
 }
 
 /**
@@ -59,4 +72,47 @@ export async function createAgentBrowser(
     proxy: opts.proxy,
     ownsRunner: true,
   })
+}
+
+/**
+ * Create a lazy browser handle with a stable logical id.
+ *
+ * The first operation finds or creates a named Vercel Sandbox. Later handles
+ * created with the same id attach to that Sandbox, including from another
+ * process. If an expired Sandbox resumes, listeners are told that its
+ * in-memory page, refs, cookies, and console history were reset.
+ */
+export function createAgentBrowserSession(
+  opts: CreateAgentBrowserSessionOptions,
+): AgentBrowserSession {
+  if (!opts.id.trim()) throw new Error('browser id must not be empty')
+
+  const runner = createNamedBrowserSandboxRunner({
+    id: opts.id,
+    image: opts.image,
+    timeoutMs: opts.timeoutMs,
+    vcpus: opts.vcpus,
+    env: opts.env,
+  })
+  const browser = createBrowserClient(runner, {
+    session: opts.session ?? runner.session,
+    args: opts.args,
+    proxy: opts.proxy,
+    closeSession: false,
+    ownsRunner: true,
+  })
+
+  return {
+    ...browser,
+    id: opts.id,
+    on(
+      event: 'reset',
+      listener: (event: BrowserRuntimeResetEvent) => void,
+    ) {
+      return runner.on(event, listener)
+    },
+    destroy() {
+      return browser.close()
+    },
+  }
 }

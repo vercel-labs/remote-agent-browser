@@ -37,6 +37,7 @@ function makeSandbox(handler) {
     expiresAt: new Date(Date.now() + 1_000),
     extendTimeout: mock.fn(async () => {}),
     stop: mock.fn(async () => {}),
+    delete: mock.fn(async () => {}),
     async runCommand(opts) {
       calls.push(opts)
       return handler ? handler(opts) : makeCommand()
@@ -100,6 +101,101 @@ describe('AgentBrowser.create', () => {
       create.mock.restore()
       get.mock.restore()
     }
+  })
+})
+
+// --- stable browser sessions -----------------------------------------------
+
+describe('AgentBrowser.session', () => {
+  it('lazily reuses a deterministic runtime and CLI session for the same id', async () => {
+    const sandbox = makeSandbox()
+    const getOrCreate = mock.method(
+      Sandbox,
+      'getOrCreate',
+      async () => sandbox,
+    )
+
+    try {
+      const first = AgentBrowser.session({ id: 'chat-123' })
+      const second = AgentBrowser.session({ id: 'chat-123' })
+
+      assert.equal(first.id, 'chat-123')
+      assert.equal(getOrCreate.mock.calls.length, 0)
+
+      await first.exec('open', { args: ['https://example.com'] })
+      await second.exec('snapshot')
+
+      assert.equal(getOrCreate.mock.calls.length, 2)
+      assert.equal(
+        getOrCreate.mock.calls[0].arguments[0].name,
+        getOrCreate.mock.calls[1].arguments[0].name,
+      )
+      assert.deepEqual(sandbox.calls[0].args.slice(0, 2), [
+        '--session',
+        first.session,
+      ])
+      assert.equal(first.session, second.session)
+
+      await first.destroy()
+      assert.equal(sandbox.delete.mock.calls.length, 1)
+    } finally {
+      getOrCreate.mock.restore()
+    }
+  })
+
+  it('reports when a named runtime resumes without its in-memory state', async () => {
+    const sandbox = makeSandbox()
+    const getOrCreate = mock.method(
+      Sandbox,
+      'getOrCreate',
+      async (options) => {
+        await options.onResume(sandbox)
+        return sandbox
+      },
+    )
+
+    try {
+      const browser = AgentBrowser.session({ id: 'chat-reset' })
+      const resets = []
+      browser.on('reset', (event) => resets.push(event))
+
+      await browser.exec('snapshot')
+
+      assert.deepEqual(resets, [{ id: 'chat-reset', reason: 'resumed' }])
+      await browser.destroy()
+    } finally {
+      getOrCreate.mock.restore()
+    }
+  })
+
+  it('does not create a runtime just to keep an unused session alive', async () => {
+    const missing = Object.assign(new Error('Status code 404 is not ok'), {
+      json: { error: { code: 'not_found' } },
+    })
+    const get = mock.method(Sandbox, 'get', async () => {
+      throw missing
+    })
+    const getOrCreate = mock.method(Sandbox, 'getOrCreate', async () => {
+      throw new Error('should not create')
+    })
+
+    try {
+      const browser = AgentBrowser.session({ id: 'unused-chat' })
+      const stop = browser.keepalive({ timeoutMs: 10_000, intervalMs: 1_000 })
+      await new Promise((resolve) => setImmediate(resolve))
+      stop()
+
+      assert.equal(get.mock.calls.length, 1)
+      assert.equal(getOrCreate.mock.calls.length, 0)
+      await browser.destroy()
+    } finally {
+      get.mock.restore()
+      getOrCreate.mock.restore()
+    }
+  })
+
+  it('rejects an empty logical id', () => {
+    assert.throws(() => AgentBrowser.session({ id: '   ' }), /must not be empty/)
   })
 })
 

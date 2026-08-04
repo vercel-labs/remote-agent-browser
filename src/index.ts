@@ -1,13 +1,22 @@
 // Public library surface: create an agent browser in a Vercel Sandbox and
 // drive it with the agent-browser CLI.
-import { createAgentBrowser } from './create.js'
+import {
+  createAgentBrowser,
+  createAgentBrowserSession,
+} from './create.js'
 
-export { createAgentBrowser, type CreateAgentBrowserOptions } from './create.js'
+export {
+  createAgentBrowser,
+  createAgentBrowserSession,
+  type CreateAgentBrowserOptions,
+  type CreateAgentBrowserSessionOptions,
+} from './create.js'
 export { createBrowserClient } from './browser.js'
 
 /** Create AgentBrowser clients backed by a fresh Vercel Sandbox. */
 export const AgentBrowser = {
   create: createAgentBrowser,
+  session: createAgentBrowserSession,
 }
 
 export type AgentBrowser = import('./types.js').AgentBrowser
@@ -15,6 +24,7 @@ export type AgentBrowser = import('./types.js').AgentBrowser
 export type {
   BrowserCommandResult,
   BrowserClientOptions,
+  BrowserRuntimeResetEvent,
   BrowserRunResult,
   CommandRunner,
   ExecOptions,
@@ -22,4 +32,5 @@ export type {
   KeepaliveOptions,
   ProxyOptions,
   RunOptions,
+  AgentBrowserSession,
 } from './types.js'

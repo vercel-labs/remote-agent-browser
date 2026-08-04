@@ -153,6 +153,41 @@ await writeFile('capture.har', result.file.bytes)
 
 All methods use the same disposable browser session until `close()` is called.
 
+### Stable browser ids
+
+Use `AgentBrowser.session()` when browser identity must survive process
+boundaries. It returns a lazy handle: constructing it or starting keepalive
+does not create a Sandbox. The first browser command finds or creates a runtime
+derived from the caller-defined id, and another process using the same id finds
+that runtime again.
+
+```ts
+const browser = AgentBrowser.session({ id: `environment:${chatId}` })
+const stopKeepalive = browser.keepalive()
+try {
+  await browser.exec('open', { args: ['https://example.com'] })
+} finally {
+  stopKeepalive()
+}
+```
+
+Ids are project-scoped. Include the deployment environment or another namespace
+when the same application uses one Vercel project for multiple environments.
+The underlying Sandbox name is private and derived from a hash of the id.
+
+If an expired Sandbox resumes, its Chromium process starts fresh. Subscribe to
+`reset` before running commands when the caller needs to surface that page,
+cookies, refs, tabs, and console history were lost:
+
+```ts
+browser.on('reset', ({ reason }) => {
+  console.log(`Browser runtime reset: ${reason}`)
+})
+```
+
+`browser.destroy()` permanently removes the named runtime. Stopping keepalive
+only allows its normal idle timeout to resume.
+
 ### Keepalive
 
 Keep the Sandbox alive across idle gaps during long-running work. Always stop

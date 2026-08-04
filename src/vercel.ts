@@ -1,5 +1,10 @@
+import { createHash } from 'node:crypto'
 import { Sandbox } from '@vercel/sandbox'
-import type { CommandRunner, KeepaliveOptions } from './types.js'
+import type {
+  BrowserRuntimeResetEvent,
+  CommandRunner,
+  KeepaliveOptions,
+} from './types.js'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 export const DEFAULT_BROWSER_IMAGE = 'remote-agent-browser:latest'
@@ -11,13 +16,13 @@ const BASE_ENV = {
 
 /** CommandRunner backed by one Vercel Sandbox. */
 export class SandboxRunner implements CommandRunner {
-  private sandbox: Sandbox
-  private env: Record<string, string>
-  private timeoutMs: number
+  protected sandbox: Sandbox | undefined
+  protected env: Record<string, string>
+  protected timeoutMs: number
   private keepaliveStops = new Set<() => void>()
 
   constructor(
-    sandbox: Sandbox,
+    sandbox: Sandbox | undefined,
     env: Record<string, string>,
     timeoutMs = DEFAULT_TIMEOUT_MS,
   ) {
@@ -26,13 +31,33 @@ export class SandboxRunner implements CommandRunner {
     this.timeoutMs = timeoutMs
   }
 
+  protected async acquire(): Promise<Sandbox> {
+    if (!this.sandbox) throw new Error('browser sandbox is unavailable')
+    return this.sandbox
+  }
+
+  protected async observe(): Promise<Sandbox | null> {
+    if (!this.sandbox) return null
+    const sandbox = await Sandbox.get({
+      name: this.sandbox.name,
+      resume: false,
+    })
+    this.sandbox = sandbox
+    return sandbox
+  }
+
+  protected async destroyRuntime(): Promise<void> {
+    await this.sandbox?.stop().catch(() => {})
+  }
+
   async run(
     cmd: string,
     args: string[],
     opts: { timeoutMs?: number; env?: Record<string, string> } = {},
   ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
     const timeoutMs = opts.timeoutMs ?? 60_000
-    const command = await this.sandbox.runCommand({
+    const sandbox = await this.acquire()
+    const command = await sandbox.runCommand({
       cmd,
       args,
       env: { ...this.env, ...opts.env },
@@ -76,19 +101,16 @@ export class SandboxRunner implements CommandRunner {
   }
 
   async writeFile(path: string, bytes: Buffer): Promise<void> {
-    await this.sandbox.writeFiles([{ path, content: bytes }])
+    const sandbox = await this.acquire()
+    await sandbox.writeFiles([{ path, content: bytes }])
   }
 
   /** Restore a sliding idle window without cumulatively adding that window. */
   private async renewLifetime(timeoutMs: number): Promise<void> {
     // Poll without resuming: a late heartbeat must not resurrect an already
     // expired Sandbox whose in-memory browser state is gone.
-    const sandbox = await Sandbox.get({
-      name: this.sandbox.name,
-      resume: false,
-    })
-    if (sandbox.status !== 'running') return
-    this.sandbox = sandbox
+    const sandbox = await this.observe()
+    if (!sandbox || sandbox.status !== 'running') return
     const targetExpiresAt = Date.now() + timeoutMs
     const currentExpiresAt = sandbox.expiresAt?.getTime()
     const extensionMs =
@@ -144,8 +166,126 @@ export class SandboxRunner implements CommandRunner {
 
   async close(): Promise<void> {
     for (const stop of [...this.keepaliveStops]) stop()
-    await this.sandbox.stop().catch(() => {})
+    await this.destroyRuntime()
   }
+}
+
+type NamedBrowserSandboxOptions = {
+  id: string
+  image?: string
+  timeoutMs?: number
+  vcpus?: number
+  env?: Record<string, string>
+}
+
+function stableNames(id: string): { sandbox: string; session: string } {
+  const hash = createHash('sha256').update(id).digest('hex')
+  return {
+    sandbox: `remote-browser-${hash.slice(0, 32)}`,
+    session: `session-${hash.slice(0, 32)}`,
+  }
+}
+
+function isMissingSandbox(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as Error & { json?: { error?: { code?: string } } }).json
+    ?.error?.code
+  return code === 'not_found' || error.message.includes('Status code 404')
+}
+
+class NamedSandboxRunner extends SandboxRunner {
+  readonly session: string
+  private readonly id: string
+  private readonly name: string
+  private readonly image: string
+  private readonly vcpus: number
+  private readonly resetListeners = new Set<
+    (event: BrowserRuntimeResetEvent) => void
+  >()
+
+  constructor(opts: NamedBrowserSandboxOptions) {
+    const names = stableNames(opts.id)
+    const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    super(undefined, { ...BASE_ENV, ...opts.env }, timeoutMs)
+    this.id = opts.id
+    this.name = names.sandbox
+    this.session = names.session
+    this.image =
+      opts.image ??
+      process.env.REMOTE_AGENT_BROWSER_IMAGE ??
+      DEFAULT_BROWSER_IMAGE
+    this.vcpus = opts.vcpus ?? 2
+  }
+
+  private readonly onResume = async () => {
+    const event: BrowserRuntimeResetEvent = {
+      id: this.id,
+      reason: 'resumed',
+    }
+    for (const listener of this.resetListeners) {
+      try {
+        listener(event)
+      } catch {}
+    }
+  }
+
+  on(
+    event: 'reset',
+    listener: (event: BrowserRuntimeResetEvent) => void,
+  ): () => void {
+    if (event !== 'reset') throw new Error(`unsupported browser event: ${event}`)
+    this.resetListeners.add(listener)
+    return () => this.resetListeners.delete(listener)
+  }
+
+  protected override async acquire(): Promise<Sandbox> {
+    if (this.sandbox) return this.sandbox
+    this.sandbox = await Sandbox.getOrCreate({
+      name: this.name,
+      image: this.image,
+      resources: { vcpus: this.vcpus },
+      timeout: this.timeoutMs,
+      ports: [],
+      env: this.env,
+      persistent: false,
+      onResume: this.onResume,
+    })
+    return this.sandbox
+  }
+
+  protected override async observe(): Promise<Sandbox | null> {
+    try {
+      const sandbox = await Sandbox.get({
+        name: this.name,
+        resume: false,
+        onResume: this.onResume,
+      })
+      this.sandbox = sandbox
+      return sandbox
+    } catch (error) {
+      if (isMissingSandbox(error)) return null
+      throw error
+    }
+  }
+
+  protected override async destroyRuntime(): Promise<void> {
+    try {
+      const sandbox =
+        this.sandbox ??
+        (await Sandbox.get({ name: this.name, resume: false }))
+      await sandbox.delete()
+      this.sandbox = undefined
+    } catch (error) {
+      if (!isMissingSandbox(error)) throw error
+    }
+  }
+}
+
+/** Create a lazy runner backed by a stable, project-scoped browser id. */
+export function createNamedBrowserSandboxRunner(
+  opts: NamedBrowserSandboxOptions,
+): NamedSandboxRunner {
+  return new NamedSandboxRunner(opts)
 }
 
 /**
