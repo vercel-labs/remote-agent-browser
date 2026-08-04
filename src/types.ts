@@ -136,7 +136,7 @@ export interface AgentBrowser {
   /** Run a batch of agent-browser arg-arrays sequentially. */
   run(commands: string[][], opts?: RunOptions): Promise<BrowserRunResult>
   /** Run a shell command verbatim, preserving quoting and control operators. */
-  runShell(command: string, opts?: ShellOptions): Promise<BrowserShellResult>
+  shell(command: string, opts?: ShellOptions): Promise<BrowserShellResult>
   /** Run one command and unwrap its typed --json data payload. */
   exec<T>(
     command: string,

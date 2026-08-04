@@ -372,7 +372,7 @@ export function createBrowserClient(
       }
     },
 
-    async runShell(
+    async shell(
       command: string,
       shellOpts: ShellOptions = {},
     ): Promise<BrowserShellResult> {

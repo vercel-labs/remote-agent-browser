@@ -272,7 +272,7 @@ describe('createBrowserClient', () => {
     const command =
       'agent-browser open "https://example.com" && agent-browser snapshot'
 
-    const result = await browser.runShell(command, { session: 'shell-session' })
+    const result = await browser.shell(command, { session: 'shell-session' })
 
     assert.equal(result.ok, true)
     assert.deepEqual(r.run.mock.calls[0].arguments, [
@@ -290,9 +290,9 @@ describe('createBrowserClient', () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })
 
-    await assert.rejects(browser.runShell('  '), /must not be empty/)
+    await assert.rejects(browser.shell('  '), /must not be empty/)
     await assert.rejects(
-      browser.runShell('agent-browser snapshot', { session: 'not valid' }),
+      browser.shell('agent-browser snapshot', { session: 'not valid' }),
       /session must match/,
     )
     await browser.close()
