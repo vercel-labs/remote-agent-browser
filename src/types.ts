@@ -32,6 +32,20 @@ export type BrowserRunResult = {
   ok: boolean
 }
 
+/** Result from a verbatim shell command running in the browser environment. */
+export type BrowserShellResult = {
+  ok: boolean
+  exitCode: number | null
+  stdout: string
+  stderr: string
+}
+
+export type ShellOptions = {
+  /** Named agent-browser CLI session available to commands through the environment. */
+  session?: string
+  timeoutMs?: number
+}
+
 export type RunOptions = {
   /** Named session to reuse browser state across calls. Default: ephemeral. */
   session?: string
@@ -121,6 +135,8 @@ export interface AgentBrowser {
   readonly session: string
   /** Run a batch of agent-browser arg-arrays sequentially. */
   run(commands: string[][], opts?: RunOptions): Promise<BrowserRunResult>
+  /** Run a shell command verbatim, preserving quoting and control operators. */
+  runShell(command: string, opts?: ShellOptions): Promise<BrowserShellResult>
   /** Run one command and unwrap its typed --json data payload. */
   exec<T>(
     command: string,
@@ -139,6 +155,8 @@ export interface AgentBrowser {
     selector: string,
     opts?: Pick<ExecOptions, 'session' | 'timeoutMs'> & { filename?: string },
   ): Promise<{ file: BrowserFile; result: BrowserCommandResult }>
+  /** Read an explicitly named artifact from the browser environment. */
+  readFile(path: string, contentType?: string): Promise<BrowserFile>
   /** Optionally open a URL, then return the interactive accessibility snapshot. */
   snapshot(
     urlOrOptions?: string | RunOptions,

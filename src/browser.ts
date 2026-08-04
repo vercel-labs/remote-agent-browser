@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   BrowserCommandResult,
   BrowserRunResult,
+  BrowserShellResult,
   BrowserClientOptions,
   CommandRunner,
   ExecOptions,
@@ -10,6 +11,7 @@ import type {
   ProxyOptions,
   AgentBrowser,
   RunOptions,
+  ShellOptions,
 } from './types.js'
 
 type FileSpec = { ext: string; contentType: string }
@@ -185,6 +187,27 @@ export function createBrowserClient(
     if (closed) throw new Error('AgentBrowser is closed')
   }
 
+  async function runWithRedaction(
+    cmd: string,
+    args: string[],
+    options: { timeoutMs?: number; env?: Record<string, string> },
+  ): Promise<Awaited<ReturnType<CommandRunner['run']>>> {
+    try {
+      const run = await runner.run(cmd, args, options)
+      return {
+        ...run,
+        stdout: redactProxy(run.stdout),
+        stderr: redactProxy(run.stderr),
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        error.message = redactProxy(error.message)
+        if (error.stack) error.stack = redactProxy(error.stack)
+      }
+      throw error
+    }
+  }
+
   async function execCommand(
     args: string[],
     timeoutMs?: number,
@@ -224,25 +247,16 @@ export function createBrowserClient(
       fileSpec = recording?.spec
     }
 
-    let run: Awaited<ReturnType<CommandRunner['run']>>
-    try {
-      run = await runner.run('agent-browser', finalArgs, {
-        timeoutMs,
-        env: clientEnv,
-      })
-    } catch (error) {
-      if (error instanceof Error) {
-        error.message = redactProxy(error.message)
-        if (error.stack) error.stack = redactProxy(error.stack)
-      }
-      throw error
-    }
+    const run = await runWithRedaction('agent-browser', finalArgs, {
+      timeoutMs,
+      env: clientEnv,
+    })
     const result: BrowserCommandResult = {
       args,
       ok: run.exitCode === 0,
       exitCode: run.exitCode,
-      stdout: redactProxy(run.stdout),
-      stderr: redactProxy(run.stderr),
+      stdout: run.stdout,
+      stderr: run.stderr,
     }
     if (result.ok && startsRecording && remotePath && fileSpec) {
       recordings.set(useSession, { path: remotePath, spec: fileSpec })
@@ -358,6 +372,31 @@ export function createBrowserClient(
       }
     },
 
+    async runShell(
+      command: string,
+      shellOpts: ShellOptions = {},
+    ): Promise<BrowserShellResult> {
+      assertOpen()
+      if (!command.trim()) throw new Error('shell command must not be empty')
+      const useSession = shellOpts.session ?? session
+      if (!SESSION_NAME.test(useSession)) {
+        throw new Error(`session must match [A-Za-z0-9_.-]{1,64}, got "${useSession}"`)
+      }
+      const run = await runWithRedaction('sh', ['-c', command], {
+        timeoutMs: shellOpts.timeoutMs,
+        env: {
+          ...clientEnv,
+          AGENT_BROWSER_SESSION: useSession,
+        },
+      })
+      return {
+        ok: run.exitCode === 0,
+        exitCode: run.exitCode,
+        stdout: run.stdout,
+        stderr: run.stderr,
+      }
+    },
+
     exec,
 
     async upload(selector, files, execOpts = {}) {
@@ -400,6 +439,16 @@ export function createBrowserClient(
         )
       }
       return { file: result.file, result }
+    },
+
+    async readFile(path, contentType = 'application/octet-stream') {
+      assertOpen()
+      if (!path) throw new Error('file path must not be empty')
+      return {
+        path,
+        bytes: await runner.readFile(path),
+        contentType,
+      }
     },
 
     async snapshot(urlOrOptions, opts = {}) {

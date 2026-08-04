@@ -56,7 +56,15 @@ export class SandboxRunner implements CommandRunner {
     opts: { timeoutMs?: number; env?: Record<string, string> } = {},
   ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
     const timeoutMs = opts.timeoutMs ?? 60_000
-    const sandbox = await this.acquire()
+    // A command is activity: restore the configured idle window even when no
+    // explicit heartbeat is running. Renewal is best-effort so an observability
+    // or platform hiccup does not block useful browser work.
+    const hadSandbox = this.sandbox !== undefined
+    let sandbox = await this.acquire()
+    if (hadSandbox) {
+      sandbox = (await this.observe().catch(() => null)) ?? sandbox
+    }
+    await this.restoreLifetime(sandbox, this.timeoutMs).catch(() => {})
     const command = await sandbox.runCommand({
       cmd,
       args,
@@ -64,9 +72,13 @@ export class SandboxRunner implements CommandRunner {
       detached: true,
     })
     let timer: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () => reject(new Error(`command timed out after ${timeoutMs}ms`)),
+        () => {
+          timedOut = true
+          reject(new Error(`command timed out after ${timeoutMs}ms`))
+        },
         timeoutMs,
       )
       if (typeof timer.unref === 'function') timer.unref()
@@ -84,10 +96,26 @@ export class SandboxRunner implements CommandRunner {
       return { stdout, stderr, exitCode }
     } catch (error) {
       await command.kill().catch(() => {})
+      if (timedOut) await this.reclaimBrowser(sandbox)
       throw error
     } finally {
       if (timer) clearTimeout(timer)
     }
+  }
+
+  /** A timed-out CLI call may leave Chromium wedged; force a clean relaunch. */
+  private async reclaimBrowser(sandbox: Sandbox): Promise<void> {
+    try {
+      const command = await sandbox.runCommand({
+        cmd: 'sh',
+        args: [
+          '-c',
+          'pkill -9 chromium || true; pkill -9 chrome || true',
+        ],
+        detached: true,
+      })
+      await command.wait()
+    } catch {}
   }
 
   async readFile(path: string): Promise<Buffer> {
@@ -106,11 +134,11 @@ export class SandboxRunner implements CommandRunner {
   }
 
   /** Restore a sliding idle window without cumulatively adding that window. */
-  private async renewLifetime(timeoutMs: number): Promise<void> {
-    // Poll without resuming: a late heartbeat must not resurrect an already
-    // expired Sandbox whose in-memory browser state is gone.
-    const sandbox = await this.observe()
-    if (!sandbox || sandbox.status !== 'running') return
+  private async restoreLifetime(
+    sandbox: Sandbox,
+    timeoutMs: number,
+  ): Promise<void> {
+    if (sandbox.status !== 'running') return
     const targetExpiresAt = Date.now() + timeoutMs
     const currentExpiresAt = sandbox.expiresAt?.getTime()
     const extensionMs =
@@ -118,6 +146,14 @@ export class SandboxRunner implements CommandRunner {
         ? timeoutMs
         : Math.ceil(targetExpiresAt - currentExpiresAt)
     if (extensionMs > 0) await sandbox.extendTimeout(extensionMs)
+  }
+
+  private async renewLifetime(timeoutMs: number): Promise<void> {
+    // Poll without resuming: a late heartbeat must not resurrect an already
+    // expired Sandbox whose in-memory browser state is gone.
+    const sandbox = await this.observe()
+    if (!sandbox) return
+    await this.restoreLifetime(sandbox, timeoutMs)
   }
 
   keepalive(opts: KeepaliveOptions = {}): () => void {

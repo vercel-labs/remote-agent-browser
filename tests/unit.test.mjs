@@ -12,6 +12,7 @@ import {
 } from '../dist/index.js'
 import {
   DEFAULT_BROWSER_IMAGE,
+  SandboxRunner,
   provisionBrowserSandbox,
 } from '../src/vercel.ts'
 
@@ -85,6 +86,7 @@ describe('AgentBrowser.create', () => {
         'http://proxy.example.com:8080',
       )
 
+      sandbox.extendTimeout.mock.resetCalls()
       const stopKeepalive = browser.keepalive({
         timeoutMs: 10_000,
         intervalMs: 1_000,
@@ -261,6 +263,38 @@ describe('createBrowserClient', () => {
     assert.deepEqual(r.run.mock.calls[1].arguments[1], [
       '--session', 's1', 'snapshot', '-i',
     ])
+    await browser.close()
+  })
+
+  it('runs shell commands verbatim with a shared browser session', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    const command =
+      'agent-browser open "https://example.com" && agent-browser snapshot'
+
+    const result = await browser.runShell(command, { session: 'shell-session' })
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(r.run.mock.calls[0].arguments, [
+      'sh',
+      ['-c', command],
+      {
+        timeoutMs: undefined,
+        env: { AGENT_BROWSER_SESSION: 'shell-session' },
+      },
+    ])
+    await browser.close()
+  })
+
+  it('validates shell commands and session names', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+
+    await assert.rejects(browser.runShell('  '), /must not be empty/)
+    await assert.rejects(
+      browser.runShell('agent-browser snapshot', { session: 'not valid' }),
+      /session must match/,
+    )
     await browser.close()
   })
 
@@ -587,6 +621,21 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('reads an explicitly named artifact', async () => {
+    const r = runner()
+    r.readFile.mock.mockImplementationOnce(async () => Buffer.from('artifact'))
+    const browser = createBrowserClient(r, { session: 's1' })
+
+    const file = await browser.readFile('/tmp/verification.png', 'image/png')
+
+    assert.deepEqual(file, {
+      path: '/tmp/verification.png',
+      bytes: Buffer.from('artifact'),
+      contentType: 'image/png',
+    })
+    await browser.close()
+  })
+
   it('screenshots the current page with options as the first argument', async () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })
@@ -625,6 +674,37 @@ describe('createBrowserClient', () => {
 // --- provisioning -----------------------------------------------------------
 
 describe('provisionBrowserSandbox', () => {
+  it('renews activity and reclaims Chromium after a command timeout', async () => {
+    const hung = makeCommand()
+    hung.wait.mock.mockImplementationOnce(async () => new Promise(() => {}))
+    const sandbox = makeSandbox((options) => {
+      if (options.cmd === 'agent-browser') return hung
+      return makeCommand()
+    })
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+
+    try {
+      const runner = new SandboxRunner(sandbox, {}, 10_000)
+      await assert.rejects(
+        runner.run('agent-browser', ['snapshot'], { timeoutMs: 1 }),
+        /command timed out/,
+      )
+
+      assert.equal(sandbox.extendTimeout.mock.calls.length, 1)
+      assert.equal(hung.kill.mock.calls.length, 1)
+      assert.deepEqual(sandbox.calls[1], {
+        cmd: 'sh',
+        args: [
+          '-c',
+          'pkill -9 chromium || true; pkill -9 chrome || true',
+        ],
+        detached: true,
+      })
+    } finally {
+      get.mock.restore()
+    }
+  })
+
   it('writes buffers through the sandbox file API', async () => {
     const sandbox = makeSandbox()
     const create = mock.method(Sandbox, 'create', async () => sandbox)

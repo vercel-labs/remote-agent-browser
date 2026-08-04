@@ -24,8 +24,10 @@ export type AgentBrowser = import('./types.js').AgentBrowser
 export type {
   BrowserCommandResult,
   BrowserClientOptions,
+  BrowserFile,
   BrowserRuntimeResetEvent,
   BrowserRunResult,
+  BrowserShellResult,
   CommandRunner,
   ExecOptions,
   JsonExecOptions,
@@ -33,4 +35,5 @@ export type {
   ProxyOptions,
   RunOptions,
   AgentBrowserSession,
+  ShellOptions,
 } from './types.js'
