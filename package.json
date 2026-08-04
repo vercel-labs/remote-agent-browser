@@ -19,7 +19,7 @@
     "prepublishOnly": "node --run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --run build && node --test tests/*.test.mjs",
-    "test:integration": "node --run build && node --test tests/integration.test.mjs",
+    "test:integration": "node --run build && node --test --test-concurrency=1 tests/*.integration.ts",
     "test:unit": "node --run build && node --test tests/unit.test.mjs"
   },
   "files": [
