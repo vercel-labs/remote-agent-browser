@@ -270,7 +270,7 @@ describe('createBrowserClient', () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })
     const command =
-      'agent-browser open "https://example.com" && agent-browser snapshot'
+      'agent-browser read "https://example.com" | grep -io "example" | wc -l'
 
     const result = await browser.shell(command, { session: 'shell-session' })
 

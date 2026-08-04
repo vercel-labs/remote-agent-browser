@@ -104,16 +104,17 @@ await browser.exec('find', {
 
 ### `browser.shell(command, options?)`
 
-Forward an existing Bash-tool command without translating it into argument
-arrays. The command runs verbatim, so quoting, JavaScript passed to `eval`, and
-control operators such as `&&` keep their shell semantics. Every
-`agent-browser` invocation inherits the client's CLI session through
-`AGENT_BROWSER_SESSION`.
+Use this when forwarding a Bash-tool command or composing `agent-browser` with
+normal shell utilities. The command runs verbatim, so quoting, pipes,
+redirection, and control operators keep their shell semantics. Prefer `exec()`
+or `run()` for browser commands that do not need a shell. Every `agent-browser`
+invocation inherits the client's CLI session through `AGENT_BROWSER_SESSION`.
 
 ```ts
 const result = await browser.shell(
-  'agent-browser open "https://example.com" && agent-browser snapshot',
+  'agent-browser read "https://example.com" | grep -io "example" | wc -l',
 )
+console.log(result.stdout)
 ```
 
 Client-wide `args` are not inserted into a shell string because doing so would

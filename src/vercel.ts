@@ -114,7 +114,17 @@ export class SandboxRunner implements CommandRunner {
         ],
         detached: true,
       })
-      await command.wait()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<void>((resolve) => {
+        // Cleanup must not turn the original command timeout into an unbounded wait.
+        timer = setTimeout(resolve, 30_000)
+        if (typeof timer.unref === 'function') timer.unref()
+      })
+      try {
+        await Promise.race([command.wait(), timeout])
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
     } catch {}
   }
 
