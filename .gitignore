@@ -3,3 +3,4 @@ dist
 .vercel
 .env*
 *.tsbuildinfo
+benchmarks/results/

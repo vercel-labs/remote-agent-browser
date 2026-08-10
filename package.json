@@ -16,6 +16,7 @@
   },
   "scripts": {
     "build": "bunchee --runtime node",
+    "benchmark": "node --run build && node benchmarks/chromium.mjs",
     "prepublishOnly": "node --run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --run build && node --test tests/*.test.mjs",
