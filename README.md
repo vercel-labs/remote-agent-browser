@@ -18,8 +18,7 @@ memory is the maximum from three successful runs using Chromium 151,
 agent-browser 0.33.2, and `https://example.com/` with a unique query per page.
 Each page must produce the expected content and interactive snapshot references.
 
-See [the benchmark plan](./BENCHMARK_PLAN.md) for the workload and reporting
-details.
+See [the benchmark methodology](./benchmarks/BENCHMARK.md) for details.
 
 ## Install
 
