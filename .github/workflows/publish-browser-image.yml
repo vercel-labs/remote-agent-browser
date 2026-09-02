@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: publish-browser-image
@@ -18,8 +19,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      - name: Authenticate Vercel CLI
+        uses: vercel/authenticate-cli-action@cec4e78ed4686ab05721608393617a31147f082b
+        with:
+          team: team_nO2mCG4W8IxPIeKoSsqwAxxB
+          audience: https://github.com/vercel
       - name: Build and publish image
         run: ./scripts/publish-image.sh latest
-        env:
-          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

@@ -39,15 +39,16 @@ fi
 
 registry_username=oidc
 registry_password="${VERCEL_OIDC_TOKEN:-}"
+registry_team_id="${VERCEL_ORG_ID:-${VERCEL_TEAM_ID:-}}"
 
-if [[ -z "$registry_password" && -n "${VERCEL_TOKEN:-}" && -n "${VERCEL_TEAM_ID:-}" ]]; then
-  registry_username="$VERCEL_TEAM_ID"
+if [[ -z "$registry_password" && -n "${VERCEL_TOKEN:-}" && -n "$registry_team_id" ]]; then
+  registry_username="$registry_team_id"
   registry_password="$VERCEL_TOKEN"
 fi
 
 if [[ -z "$registry_password" ]]; then
   if ! command -v vercel >/dev/null 2>&1; then
-    echo "Set VERCEL_OIDC_TOKEN, set VERCEL_TOKEN and VERCEL_TEAM_ID, or install the Vercel CLI" >&2
+    echo "Set VERCEL_OIDC_TOKEN, set VERCEL_TOKEN and VERCEL_ORG_ID, or install the Vercel CLI" >&2
     exit 1
   fi
 

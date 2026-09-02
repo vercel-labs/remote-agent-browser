@@ -87,7 +87,7 @@ describe('publish-image.sh', () => {
           DOCKER_CALLS_FILE: dockerCalls,
           PATH: `${directory}:${process.env.PATH}`,
           VERCEL_OIDC_TOKEN: '',
-          VERCEL_TEAM_ID: 'team_123',
+          VERCEL_ORG_ID: 'team_123',
           VERCEL_TOKEN: 'ci-access-token',
         },
       })
