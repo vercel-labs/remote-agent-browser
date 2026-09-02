@@ -37,9 +37,17 @@ if ! docker buildx version >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ -z "${VERCEL_OIDC_TOKEN:-}" ]]; then
+registry_username=oidc
+registry_password="${VERCEL_OIDC_TOKEN:-}"
+
+if [[ -z "$registry_password" && -n "${VERCEL_TOKEN:-}" && -n "${VERCEL_TEAM_ID:-}" ]]; then
+  registry_username="$VERCEL_TEAM_ID"
+  registry_password="$VERCEL_TOKEN"
+fi
+
+if [[ -z "$registry_password" ]]; then
   if ! command -v vercel >/dev/null 2>&1; then
-    echo "Set VERCEL_OIDC_TOKEN or install the Vercel CLI" >&2
+    echo "Set VERCEL_OIDC_TOKEN, set VERCEL_TOKEN and VERCEL_TEAM_ID, or install the Vercel CLI" >&2
     exit 1
   fi
 
@@ -55,15 +63,17 @@ if [[ -z "${VERCEL_OIDC_TOKEN:-}" ]]; then
   # shellcheck disable=SC1090
   source "$credentials_file"
   set +a
+
+  registry_password="${VERCEL_OIDC_TOKEN:-}"
 fi
 
-if [[ -z "${VERCEL_OIDC_TOKEN:-}" ]]; then
-  echo "VERCEL_OIDC_TOKEN is required to publish to VCR" >&2
+if [[ -z "$registry_password" ]]; then
+  echo "VCR credentials are required to publish the image" >&2
   exit 1
 fi
 
-printf '%s' "$VERCEL_OIDC_TOKEN" | docker login vcr.vercel.com \
-  --username oidc \
+printf '%s' "$registry_password" | docker login vcr.vercel.com \
+  --username "$registry_username" \
   --password-stdin
 
 tag_args=()
@@ -79,6 +89,8 @@ echo "Publishing ${image_refs[*]}"
 docker buildx build \
   -f "$project_dir/Dockerfile.sandbox" \
   --platform linux/amd64,linux/arm64 \
+  --pull \
+  --no-cache \
   "${tag_args[@]}" \
   --output "type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true" \
   "$project_dir"
