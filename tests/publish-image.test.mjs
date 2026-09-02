@@ -62,6 +62,40 @@ describe('publish-image.sh', () => {
       const calls = readFileSync(dockerCalls, 'utf8')
       assert.match(calls, /login vcr\.vercel\.com --username oidc/)
       assert.match(calls, /--tag .*:v1\.2\.0 --tag .*:latest/)
+      assert.match(calls, /--pull --no-cache/)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('publishes with access-token credentials in external CI', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'publish-image-'))
+    const dockerCalls = join(directory, 'docker-calls')
+    const docker = join(directory, 'docker')
+
+    writeFileSync(
+      docker,
+      '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_CALLS_FILE"\nif [ "$1" = "login" ]; then cat >/dev/null; fi\n',
+    )
+    chmodSync(docker, 0o755)
+
+    try {
+      const result = spawnSync(script, ['latest'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DOCKER_CALLS_FILE: dockerCalls,
+          PATH: `${directory}:${process.env.PATH}`,
+          VERCEL_OIDC_TOKEN: '',
+          VERCEL_TEAM_ID: 'team_123',
+          VERCEL_TOKEN: 'ci-access-token',
+        },
+      })
+
+      assert.equal(result.status, 0, result.stderr)
+      const calls = readFileSync(dockerCalls, 'utf8')
+      assert.match(calls, /login vcr\.vercel\.com --username team_123/)
+      assert.match(calls, /--tag .*:latest/)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

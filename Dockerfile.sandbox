@@ -1,8 +1,7 @@
 FROM node:24-slim
 
-# Keep the browser and its native CLI in the image so Sandbox creation never
-# installs packages at runtime. Debian Chromium supports amd64 and arm64.
-ARG AGENT_BROWSER_VERSION=0.36.0
+# Keep the latest browser and its native CLI in the image so Sandbox creation
+# never installs packages at runtime. Debian Chromium supports amd64 and arm64.
 
 # The font packages mirror `agent-browser install --with-deps`. This image never
 # runs that command, so they have to be installed here or CJK and emoji glyphs
@@ -15,7 +14,7 @@ RUN apt-get update \
         fonts-noto-cjk \
         fonts-freefont-ttf \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g --allow-scripts=agent-browser "agent-browser@$AGENT_BROWSER_VERSION"
+    && npm install -g --allow-scripts=agent-browser agent-browser@latest
 
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV AGENT_BROWSER_ARGS="--no-sandbox,--disable-dev-shm-usage,--disable-gpu"
