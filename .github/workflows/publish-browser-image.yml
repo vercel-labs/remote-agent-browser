@@ -57,7 +57,11 @@ jobs:
                 subject_token: oidcToken,
               }),
             });
-            if (!response.ok) throw new Error(`Vercel CLI OIDC exchange failed (${response.status}). Configure a CLI OIDC policy for this repository and workflow.`);
+            if (!response.ok) {
+              const error = await response.json().catch(() => ({}));
+              const detail = error.error_description || error.error?.message || error.error || 'No error description returned';
+              throw new Error(`Vercel CLI OIDC exchange failed (${response.status}): ${String(detail).slice(0, 1000)}`);
+            }
             const { access_token: token } = await response.json();
             if (!token) throw new Error('Vercel CLI OIDC exchange returned no access token');
             core.setSecret(token);
