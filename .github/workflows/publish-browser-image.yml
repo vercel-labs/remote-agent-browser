@@ -1,25 +1,38 @@
 name: publish browser image
 
 on:
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
-  group: publish-browser-image
+  group: publish-browser-image-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Publish latest
+    name: Publish test image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+      - name: Log in to VCR
+        uses: vercel/vcr-action/login@v1
+        with:
+          team: ${{ vars.VERCEL_TEAM_ID }}
       - name: Build and publish image
-        run: ./scripts/publish-image.sh latest
-        env:
-          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.sandbox
+          platforms: linux/amd64,linux/arm64
+          pull: true
+          no-cache: true
+          provenance: false
+          # Temporary tags while validating OIDC publishing from this PR.
+          tags: vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser:${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'oidc-test' }}
+          outputs: type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
