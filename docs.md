@@ -6,6 +6,18 @@ The browser Sandbox boots from `Dockerfile.sandbox`, which contains
 agent-browser, Chromium, and their system dependencies. The image is stored in
 the Vercel Container Registry project used by this package.
 
+GitHub Actions publishes `remote-agent-browser:latest` when changes to
+`Dockerfile.sandbox`, `.dockerignore`, `Dockerfile.sandbox.dockerignore`, or the
+image publishing workflow land on `main` (including merged PRs).
+
+Authentication uses `vercel/vcr-action/login@v1` and the GitHub repository
+variable `VERCEL_TEAM_ID`. The Vercel team's VCR OIDC policy must grant read/write
+access to this project and allow the GitHub subject
+`repo:vercel-labs/remote-agent-browser:ref:refs/heads/main` for
+`.github/workflows/publish-browser-image.yml`.
+
+To refresh upstream packages without a Dockerfile change, publish locally.
+
 Install the Vercel CLI and Docker with Buildx, authenticate both CLIs, and link
 this directory to the `remote-agent-browser` Vercel project once:
 

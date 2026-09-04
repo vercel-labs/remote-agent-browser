@@ -1,0 +1,42 @@
+name: publish browser image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.sandbox
+      - .dockerignore
+      - Dockerfile.sandbox.dockerignore
+      - .github/workflows/publish-browser-image.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-browser-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish browser image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to VCR
+        uses: vercel/vcr-action/login@v1
+        with:
+          team: ${{ vars.VERCEL_TEAM_ID }}
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.sandbox
+          platforms: linux/amd64,linux/arm64
+          pull: true
+          no-cache: true
+          provenance: false
+          tags: vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser:latest
+          outputs: type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
