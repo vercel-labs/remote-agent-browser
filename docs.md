@@ -20,12 +20,27 @@ PR image in the same Vercel project with
 `REMOTE_AGENT_BROWSER_IMAGE=remote-agent-browser:<pr-tag>` when running the
 integration tests below.
 
+After publishing, the same workflow runs the proxy, screenshot, and browser
+session integration tests in real Sandboxes, using the build's image digest.
+This tests the exact image behind the PR tag (or `latest` on main). A test
+failure fails the publishing job; the image has already been pushed at that
+point. The default test workflow continues to run mocked tests independently.
+
 Authentication uses `vercel/vcr-action/login@v1` and the GitHub repository
 variable `VERCEL_TEAM_ID`. The Vercel team's OIDC policy must grant VCR read/write
 access to this project and allow both GitHub subjects:
 
 - `repo:vercel-labs/remote-agent-browser:pull_request`
 - `repo:vercel-labs/remote-agent-browser:ref:refs/heads/main`
+
+Sandbox tests also require a **Vercel CLI OIDC policy** for this repository and
+workflow, allowing the same PR and main identities. The workflow uses
+`vercel/authenticate-cli-action` to obtain a short-lived CLI token, then pulls
+a fresh development `VERCEL_OIDC_TOKEN` for the project. Only the OIDC token is
+loaded into the test environment; the temporary environment file is deleted
+when the test step exits. Set the GitHub repository variable `VERCEL_PROJECT_ID`
+to the `remote-agent-browser` project's ID. No long-lived Vercel token secret
+is required.
 
 To refresh upstream packages without a Dockerfile change, publish locally:
 

@@ -64,3 +64,28 @@ jobs:
             printf 'await AgentBrowser.create({ image: "remote-agent-browser:%s" });\n' "$IMAGE_TAG"
             printf '```\n'
           } >> "$GITHUB_STEP_SUMMARY"
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Authenticate Vercel CLI for Sandbox tests
+        uses: vercel/authenticate-cli-action@cec4e78ed4686ab05721608393617a31147f082b
+        with:
+          team: ${{ vars.VERCEL_TEAM_ID }}
+      - name: Test published image in Sandbox
+        timeout-minutes: 15
+        env:
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          RUN_INTEGRATION: '1'
+          REMOTE_AGENT_BROWSER_IMAGE: remote-agent-browser@${{ steps.build.outputs.digest }}
+        run: |
+          test -n "$VERCEL_PROJECT_ID" || { echo '::error::Set the VERCEL_PROJECT_ID repository variable'; exit 1; }
+          credentials_file="$(mktemp "$RUNNER_TEMP/sandbox-env.XXXXXX")"
+          trap 'rm -f "$credentials_file"' EXIT
+          pnpm dlx vercel@58.4.4 env pull "$credentials_file" --yes --environment=development --token "$VERCEL_TOKEN"
+          VERCEL_OIDC_TOKEN="$(node --env-file="$credentials_file" -e 'if (!process.env.VERCEL_OIDC_TOKEN) process.exit(1); process.stdout.write(process.env.VERCEL_OIDC_TOKEN)')"
+          echo "::add-mask::$VERCEL_OIDC_TOKEN"
+          export VERCEL_OIDC_TOKEN
+          node --run test:integration
