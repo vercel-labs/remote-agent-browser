@@ -2,7 +2,19 @@ name: publish browser image
 
 on:
   pull_request:
-  workflow_dispatch:
+    branches: [main]
+    paths:
+      - Dockerfile.sandbox
+      - .dockerignore
+      - Dockerfile.sandbox.dockerignore
+      - .github/workflows/publish-browser-image.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.sandbox
+      - .dockerignore
+      - Dockerfile.sandbox.dockerignore
+      - .github/workflows/publish-browser-image.yml
 
 permissions:
   contents: read
@@ -14,8 +26,12 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish test image
+    name: Publish browser image
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    env:
+      IMAGE_REPOSITORY: vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser
+      IMAGE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}-{3}', github.event.pull_request.number, github.event.pull_request.head.sha, github.run_id, github.run_attempt) || 'latest' }}
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v3
@@ -25,6 +41,7 @@ jobs:
         with:
           team: ${{ vars.VERCEL_TEAM_ID }}
       - name: Build and publish image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -33,6 +50,17 @@ jobs:
           pull: true
           no-cache: true
           provenance: false
-          # Temporary tags while validating OIDC publishing from this PR.
-          tags: vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser:${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'oidc-test' }}
+          tags: ${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_TAG }}
           outputs: type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
+      - name: Show published image
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            printf '### Published browser image\n\n'
+            printf 'Image: `%s:%s`\n\n' "$IMAGE_REPOSITORY" "$IMAGE_TAG"
+            printf 'Digest: `%s@%s`\n\n' "$IMAGE_REPOSITORY" "$IMAGE_DIGEST"
+            printf 'Test in the same Vercel project with:\n\n```js\n'
+            printf 'await AgentBrowser.create({ image: "remote-agent-browser:%s" });\n' "$IMAGE_TAG"
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
