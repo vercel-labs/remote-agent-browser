@@ -11,13 +11,19 @@ GitHub Actions publishes when `Dockerfile.sandbox`, `.dockerignore`,
 
 - Pushes to `main` (including merged PRs) publish `latest`.
 - Same-repository PRs targeting `main` publish
-  `pr-<number>-<head-sha>-<run-id>-<attempt>`, unique to each build attempt.
+  `remote-agent-browser-preview:pr-<number>-<head-sha>-<run-id>-<attempt>`,
+  unique to each build attempt, in a private VCR repository.
   Fork PRs skip publishing because they do not have the required OIDC access.
+
+VCR visibility applies to entire repositories, not individual tags. Keep
+`remote-agent-browser-preview` private with no sharing grants; CI uses the
+`remote-agent-browser` project credentials to pull it. Public releases remain
+in the `remote-agent-browser` repository.
 
 The publishing run summary includes the full image reference and digest. Test a
 PR image in the same Vercel project with
-`AgentBrowser.create({ image: 'remote-agent-browser:<pr-tag>' })`, or set
-`REMOTE_AGENT_BROWSER_IMAGE=remote-agent-browser:<pr-tag>` when running the
+`AgentBrowser.create({ image: 'remote-agent-browser-preview:<pr-tag>' })`, or set
+`REMOTE_AGENT_BROWSER_IMAGE=remote-agent-browser-preview:<pr-tag>` when running the
 integration tests below.
 
 After publishing, the same workflow runs the proxy, screenshot, and browser
