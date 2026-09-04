@@ -35,10 +35,10 @@ access to this project and allow both GitHub subjects:
 
 Sandbox tests also require a **Vercel CLI OIDC policy** for this repository and
 workflow, allowing the same PR and main identities. The workflow uses
-`vercel/authenticate-cli-action` to obtain a short-lived CLI token, then pulls
+a GitHub OIDC token exchange to obtain a short-lived CLI token, then pulls
 a fresh development `VERCEL_OIDC_TOKEN` for the project. Only the OIDC token is
 loaded into the test environment; the temporary environment file is deleted
-when the test step exits. Set the GitHub repository variable `VERCEL_PROJECT_ID`
+when the test step exits, and the CLI token is revoked at job completion. Set the GitHub repository variable `VERCEL_PROJECT_ID`
 to the `remote-agent-browser` project's ID. No long-lived Vercel token secret
 is required.
 
