@@ -1,13 +1,6 @@
 name: publish browser image
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - Dockerfile.sandbox
-      - .dockerignore
-      - Dockerfile.sandbox.dockerignore
-      - .github/workflows/publish-browser-image.yml
   push:
     branches: [main]
     paths:
@@ -21,52 +14,15 @@ permissions:
   id-token: write
 
 concurrency:
-  group: publish-browser-image-${{ github.event.pull_request.number || github.ref }}
+  group: publish-browser-image
   cancel-in-progress: false
 
 jobs:
   publish:
     name: Publish browser image
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    env:
-      IMAGE_REGISTRY: vcr.vercel.com/vercel-labs/remote-agent-browser
-      IMAGE_NAME: ${{ github.event_name == 'pull_request' && 'remote-agent-browser-preview' || 'remote-agent-browser' }}
-      IMAGE_TAG: ${{ github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}-{3}', github.event.pull_request.number, github.event.pull_request.head.sha, github.run_id, github.run_attempt) || 'latest' }}
     steps:
       - uses: actions/checkout@v6
-      - name: Authenticate Vercel CLI for Sandbox tests
-        uses: actions/github-script@v8
-        env:
-          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
-        with:
-          script: |
-            const team = process.env.VERCEL_TEAM_ID;
-            if (!team?.startsWith('team_')) throw new Error('Set the VERCEL_TEAM_ID repository variable');
-            const oidcToken = await core.getIDToken();
-            core.setSecret(oidcToken);
-            const response = await fetch('https://api.vercel.com/login/oauth/token', {
-              method: 'POST',
-              signal: AbortSignal.timeout(30_000),
-              body: new URLSearchParams({
-                grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
-                client_id: 'cl_HYyOPBNtFMfHhaUn9L4QPfTZz6TP47bp',
-                subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
-                requested_token_type: 'urn:ietf:params:oauth:token-type:access_token',
-                team_id_or_slug: team,
-                subject_token: oidcToken,
-              }),
-            });
-            if (!response.ok) {
-              const error = await response.json().catch(() => ({}));
-              const detail = error.error_description || error.error?.message || error.error || 'No error description returned';
-              throw new Error(`Vercel CLI OIDC exchange failed (${response.status}): ${String(detail).slice(0, 1000)}`);
-            }
-            const { access_token: token } = await response.json();
-            if (!token) throw new Error('Vercel CLI OIDC exchange returned no access token');
-            core.setSecret(token);
-            core.exportVariable('VERCEL_TOKEN', token);
-            core.exportVariable('VERCEL_ORG_ID', team);
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Log in to VCR
@@ -74,7 +30,6 @@ jobs:
         with:
           team: ${{ vars.VERCEL_TEAM_ID }}
       - name: Build and publish image
-        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -83,53 +38,5 @@ jobs:
           pull: true
           no-cache: true
           provenance: false
-          tags: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          tags: vcr.vercel.com/vercel-labs/remote-agent-browser/remote-agent-browser:latest
           outputs: type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
-      - name: Show published image
-        env:
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          {
-            printf '### Published browser image\n\n'
-            printf 'Image: `%s:%s`\n\n' "$IMAGE_REGISTRY/$IMAGE_NAME" "$IMAGE_TAG"
-            printf 'Digest: `%s@%s`\n\n' "$IMAGE_REGISTRY/$IMAGE_NAME" "$IMAGE_DIGEST"
-            printf 'Test in the same Vercel project with:\n\n```js\n'
-            printf 'await AgentBrowser.create({ image: "%s:%s" });\n' "$IMAGE_NAME" "$IMAGE_TAG"
-            printf '```\n'
-          } >> "$GITHUB_STEP_SUMMARY"
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Test published image in Sandbox
-        timeout-minutes: 15
-        env:
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-          RUN_INTEGRATION: '1'
-          REMOTE_AGENT_BROWSER_IMAGE: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-        run: |
-          test -n "$VERCEL_PROJECT_ID" || { echo '::error::Set the VERCEL_PROJECT_ID repository variable'; exit 1; }
-          credentials_file="$(mktemp "$RUNNER_TEMP/sandbox-env.XXXXXX")"
-          trap 'rm -f "$credentials_file"' EXIT
-          pnpm dlx vercel@58.4.4 env pull "$credentials_file" --yes --environment=development --token "$VERCEL_TOKEN"
-          VERCEL_OIDC_TOKEN="$(node --env-file="$credentials_file" -e 'if (!process.env.VERCEL_OIDC_TOKEN) process.exit(1); process.stdout.write(process.env.VERCEL_OIDC_TOKEN)')"
-          echo "::add-mask::$VERCEL_OIDC_TOKEN"
-          export VERCEL_OIDC_TOKEN
-          node --run test:integration
-      - name: Revoke Vercel CLI token
-        if: always() && env.VERCEL_TOKEN != ''
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const response = await fetch('https://api.vercel.com/login/oauth/token/revoke', {
-              method: 'POST',
-              signal: AbortSignal.timeout(30_000),
-              body: new URLSearchParams({
-                client_id: 'cl_HYyOPBNtFMfHhaUn9L4QPfTZz6TP47bp',
-                token: process.env.VERCEL_TOKEN,
-                token_type_hint: 'access_token',
-              }),
-            });
-            if (!response.ok) throw new Error(`Vercel CLI token revocation failed (${response.status})`);

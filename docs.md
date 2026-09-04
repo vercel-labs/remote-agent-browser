@@ -6,49 +6,17 @@ The browser Sandbox boots from `Dockerfile.sandbox`, which contains
 agent-browser, Chromium, and their system dependencies. The image is stored in
 the Vercel Container Registry project used by this package.
 
-GitHub Actions publishes when `Dockerfile.sandbox`, `.dockerignore`,
-`Dockerfile.sandbox.dockerignore`, or the image publishing workflow changes:
-
-- Pushes to `main` (including merged PRs) publish `latest`.
-- Same-repository PRs targeting `main` publish
-  `remote-agent-browser-preview:pr-<number>-<head-sha>-<run-id>-<attempt>`,
-  unique to each build attempt, in a private VCR repository.
-  Fork PRs skip publishing because they do not have the required OIDC access.
-
-VCR visibility applies to entire repositories, not individual tags. Keep
-`remote-agent-browser-preview` private with no sharing grants; CI uses the
-`remote-agent-browser` project credentials to pull it. Public releases remain
-in the `remote-agent-browser` repository.
-
-The publishing run summary includes the full image reference and digest. Test a
-PR image in the same Vercel project with
-`AgentBrowser.create({ image: 'remote-agent-browser-preview:<pr-tag>' })`, or set
-`REMOTE_AGENT_BROWSER_IMAGE=remote-agent-browser-preview:<pr-tag>` when running the
-integration tests below.
-
-After publishing, the same workflow runs the proxy, screenshot, and browser
-session integration tests in real Sandboxes, using the build's image digest.
-This tests the exact image behind the PR tag (or `latest` on main). A test
-failure fails the publishing job; the image has already been pushed at that
-point. The default test workflow continues to run mocked tests independently.
+GitHub Actions publishes `remote-agent-browser:latest` when changes to
+`Dockerfile.sandbox`, `.dockerignore`, `Dockerfile.sandbox.dockerignore`, or the
+image publishing workflow land on `main` (including merged PRs).
 
 Authentication uses `vercel/vcr-action/login@v1` and the GitHub repository
-variable `VERCEL_TEAM_ID`. The Vercel team's OIDC policy must grant VCR read/write
-access to this project and allow both GitHub subjects:
+variable `VERCEL_TEAM_ID`. The Vercel team's VCR OIDC policy must grant read/write
+access to this project and allow the GitHub subject
+`repo:vercel-labs/remote-agent-browser:ref:refs/heads/main` for
+`.github/workflows/publish-browser-image.yml`.
 
-- `repo:vercel-labs/remote-agent-browser:pull_request`
-- `repo:vercel-labs/remote-agent-browser:ref:refs/heads/main`
-
-Sandbox tests also require a **Vercel CLI OIDC policy** for this repository and
-workflow, allowing the same PR and main identities. The workflow uses
-a GitHub OIDC token exchange to obtain a short-lived CLI token, then pulls
-a fresh development `VERCEL_OIDC_TOKEN` for the project. Only the OIDC token is
-loaded into the test environment; the temporary environment file is deleted
-when the test step exits, and the CLI token is revoked at job completion. Set the GitHub repository variable `VERCEL_PROJECT_ID`
-to the `remote-agent-browser` project's ID. No long-lived Vercel token secret
-is required.
-
-To refresh upstream packages without a Dockerfile change, publish locally:
+To refresh upstream packages without a Dockerfile change, publish locally.
 
 Install the Vercel CLI and Docker with Buildx, authenticate both CLIs, and link
 this directory to the `remote-agent-browser` Vercel project once:
