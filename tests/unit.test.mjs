@@ -201,6 +201,141 @@ describe('AgentBrowser.session', () => {
   })
 })
 
+// --- explicit Sandbox authentication ----------------------------------------
+
+describe('Sandbox credential resolution', () => {
+  it('refreshes credentials for create, commands, writes, keepalive and deletion without leaking them into env', async () => {
+    const sandbox = makeSandbox()
+    const getOrCreate = mock.method(Sandbox, 'getOrCreate', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+    let generation = 0
+    const credentials = () => ({
+      teamId: 'resource-team',
+      projectId: 'resource-project',
+      token: `token-${++generation}`,
+    })
+    const resolver = mock.fn(async () => credentials())
+    try {
+      const browser = AgentBrowser.session({
+        id: 'resource-chat',
+        resolveSandboxCredentials: resolver,
+      })
+      assert.equal(resolver.mock.calls.length, 0)
+      await browser.shell('true')
+      assert.equal(getOrCreate.mock.calls[0].arguments[0].token, 'token-1')
+      await browser.shell('true')
+      assert.equal(get.mock.calls.at(-1).arguments[0].token, 'token-2')
+      const runner = new SandboxRunner(sandbox, {}, 10_000, resolver)
+      await runner.writeFile('/tmp/file', Buffer.from('test'))
+      assert.equal(get.mock.calls.at(-1).arguments[0].token, 'token-3')
+      const stop = browser.keepalive({ timeoutMs: 10_000, intervalMs: 1_000 })
+      await new Promise((resolve) => setImmediate(resolve))
+      stop()
+      assert.equal(get.mock.calls.at(-1).arguments[0].token, 'token-4')
+      await browser.destroy()
+      assert.equal(get.mock.calls.at(-1).arguments[0].token, 'token-5')
+      assert.equal(sandbox.delete.mock.calls.length, 1)
+      for (const call of get.mock.calls) {
+        assert.equal(call.arguments[0].teamId, 'resource-team')
+        assert.equal(call.arguments[0].projectId, 'resource-project')
+        assert.equal(call.arguments[0].resume, false)
+      }
+      for (const call of sandbox.calls) assert.equal(call.env.token, undefined)
+    } finally {
+      getOrCreate.mock.restore()
+      get.mock.restore()
+    }
+  })
+
+  it('rejects a failed credential refresh after acquisition without dispatching another command or write', async () => {
+    const sandbox = makeSandbox()
+    const resolver = mock.fn(async () => ({
+      token: 'fresh',
+      teamId: 'team',
+      projectId: 'project',
+    }))
+    const getOrCreate = mock.method(Sandbox, 'getOrCreate', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+    try {
+      const browser = AgentBrowser.session({
+        id: 'refresh-error',
+        resolveSandboxCredentials: resolver,
+      })
+      await browser.shell('true')
+      resolver.mock.mockImplementation(async () => {
+        throw new Error('refresh denied')
+      })
+      await assert.rejects(browser.shell('true'), /refresh denied/)
+      assert.equal(sandbox.calls.length, 1)
+      assert.equal(get.mock.calls.length, 0)
+      const runner = new SandboxRunner(sandbox, {}, 10_000, resolver)
+      await assert.rejects(
+        runner.writeFile('/tmp/file', Buffer.from('test')),
+        /refresh denied/,
+      )
+      assert.equal(sandbox.writes.length, 0)
+      await assert.rejects(browser.destroy(), /refresh denied/)
+      assert.equal(sandbox.delete.mock.calls.length, 0)
+    } finally {
+      getOrCreate.mock.restore()
+      get.mock.restore()
+    }
+  })
+
+  it('propagates scoped lookup failures but retains deployment-auth best-effort observation', async () => {
+    const sandbox = makeSandbox()
+    const get = mock.method(Sandbox, 'get', async () => {
+      throw new Error('lookup denied')
+    })
+    try {
+      const scoped = new SandboxRunner(sandbox, {}, 10_000, async () => ({
+        token: 'fresh',
+        teamId: 'team',
+        projectId: 'project',
+      }))
+      await assert.rejects(scoped.run('true', []), /lookup denied/)
+      assert.equal(sandbox.calls.length, 0)
+      const legacy = new SandboxRunner(
+        sandbox,
+        {},
+        10_000,
+        async () => undefined,
+      )
+      await legacy.run('true', [])
+      assert.equal(sandbox.calls.length, 1)
+    } finally {
+      get.mock.restore()
+    }
+  })
+
+  it('supports explicit credentials for the fresh factory and refreshes before stop', async () => {
+    const sandbox = makeSandbox()
+    const create = mock.method(Sandbox, 'create', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+    const credentials = { token: 'fresh', teamId: 'team', projectId: 'project' }
+    try {
+      const browser = await AgentBrowser.create({
+        resolveSandboxCredentials: async () => credentials,
+      })
+      assert.deepEqual(
+        Object.fromEntries(
+          Object.keys(credentials).map((key) => [
+            key,
+            create.mock.calls[0].arguments[0][key],
+          ]),
+        ),
+        credentials,
+      )
+      await browser.close()
+      assert.equal(get.mock.calls[0].arguments[0].token, 'fresh')
+      assert.equal(sandbox.stop.mock.calls.length, 1)
+    } finally {
+      create.mock.restore()
+      get.mock.restore()
+    }
+  })
+})
+
 // --- flagsToArgs ------------------------------------------------------------
 
 describe('flagsToArgs', () => {

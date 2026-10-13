@@ -36,4 +36,6 @@ export type {
   RunOptions,
   AgentBrowserSession,
   ShellOptions,
+  SandboxCredentials,
+  ResolveSandboxCredentials,
 } from './types.js'
