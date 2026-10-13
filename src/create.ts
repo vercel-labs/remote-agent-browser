@@ -8,9 +8,12 @@ import type {
   AgentBrowserSession,
   BrowserRuntimeResetEvent,
   ProxyOptions,
+  ResolveSandboxCredentials,
 } from './types.js'
 
 export type CreateAgentBrowserOptions = {
+  /** Fresh credentials for a fixed Sandbox scope; omit for deployment auth. */
+  resolveSandboxCredentials?: ResolveSandboxCredentials
   /** Named CLI session; state (page, cookies, refs) persists across calls. */
   session?: string
   /**
@@ -65,6 +68,7 @@ export async function createAgentBrowser(
     timeoutMs: opts.timeoutMs,
     vcpus: opts.vcpus,
     env: opts.env,
+    resolveSandboxCredentials: opts.resolveSandboxCredentials,
   })
   return createBrowserClient(runner, {
     session: opts.session,
@@ -93,6 +97,7 @@ export function createAgentBrowserSession(
     timeoutMs: opts.timeoutMs,
     vcpus: opts.vcpus,
     env: opts.env,
+    resolveSandboxCredentials: opts.resolveSandboxCredentials,
   })
   const browser = createBrowserClient(runner, {
     session: opts.session ?? runner.session,

@@ -48,6 +48,27 @@ references. `close()` closes Chromium and stops the Sandbox.
 Authentication is automatic when running on Vercel through
 `VERCEL_OIDC_TOKEN`.
 
+To run browsers in another team/project, supply explicit short-lived credentials:
+
+```ts
+const browser = AgentBrowser.session({
+  id: `preview:${chatId}`,
+  resolveSandboxCredentials: async () => ({
+    teamId: resourceTeamId,
+    projectId: resourceProjectId,
+    token: await getShortLivedTeamToken(),
+  }),
+})
+```
+
+The same option works with `AgentBrowser.create()`. Keep the team and project
+fixed for the handle's lifetime; refresh only the token. The resolver is lazy
+for named sessions and runs before creation, cached-runtime command/file access,
+observation/keepalive, and cleanup. A resolver failure rejects the operation;
+commands do not fall back to cached credentials. Returning `undefined` preserves
+deployment authentication. Credentials are not passed into browser command env.
+
+
 For local development, link a Vercel project and pull its environment:
 
 ```bash

@@ -188,3 +188,14 @@ export interface AgentBrowserSession extends AgentBrowser {
   /** Permanently remove the runtime currently associated with this id. */
   destroy(): Promise<void>
 }
+
+/** Explicit Sandbox scope; resolve a fresh token while keeping team/project fixed. */
+export type SandboxCredentials = {
+  token: string
+  teamId: string
+  projectId: string
+}
+
+export type ResolveSandboxCredentials = () => Promise<
+  SandboxCredentials | undefined
+>

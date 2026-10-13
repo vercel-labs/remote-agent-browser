@@ -4,6 +4,8 @@ import type {
   BrowserRuntimeResetEvent,
   CommandRunner,
   KeepaliveOptions,
+  SandboxCredentials,
+  ResolveSandboxCredentials,
 } from './types.js'
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
@@ -19,16 +21,21 @@ export class SandboxRunner implements CommandRunner {
   protected sandbox: Sandbox | undefined
   protected env: Record<string, string>
   protected timeoutMs: number
+  protected readonly resolveSandboxCredentials:
+    | ResolveSandboxCredentials
+    | undefined
   private keepaliveStops = new Set<() => void>()
 
   constructor(
     sandbox: Sandbox | undefined,
     env: Record<string, string>,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    resolveSandboxCredentials?: ResolveSandboxCredentials,
   ) {
     this.sandbox = sandbox
     this.env = env
     this.timeoutMs = timeoutMs
+    this.resolveSandboxCredentials = resolveSandboxCredentials
   }
 
   protected async acquire(): Promise<Sandbox> {
@@ -37,8 +44,15 @@ export class SandboxRunner implements CommandRunner {
   }
 
   protected async observe(): Promise<Sandbox | null> {
+    return this.observeWithCredentials(await this.resolveSandboxCredentials?.())
+  }
+
+  protected async observeWithCredentials(
+    credentials: SandboxCredentials | undefined,
+  ): Promise<Sandbox | null> {
     if (!this.sandbox) return null
     const sandbox = await Sandbox.get({
+      ...credentials,
       name: this.sandbox.name,
       resume: false,
     })
@@ -47,6 +61,14 @@ export class SandboxRunner implements CommandRunner {
   }
 
   protected async destroyRuntime(): Promise<void> {
+    if (this.resolveSandboxCredentials) {
+      const credentials = await this.resolveSandboxCredentials()
+      if (credentials) {
+        const sandbox = await this.observeWithCredentials(credentials)
+        await sandbox?.stop()
+        return
+      }
+    }
     await this.sandbox?.stop().catch(() => {})
   }
 
@@ -62,7 +84,16 @@ export class SandboxRunner implements CommandRunner {
     const hadSandbox = this.sandbox !== undefined
     let sandbox = await this.acquire()
     if (hadSandbox) {
-      sandbox = (await this.observe().catch(() => null)) ?? sandbox
+      const credentials = await this.resolveSandboxCredentials?.()
+      if (credentials) {
+        const observed = await this.observeWithCredentials(credentials)
+        if (!observed) throw new Error('browser sandbox is unavailable')
+        sandbox = observed
+      } else {
+        sandbox =
+          (await this.observeWithCredentials(undefined).catch(() => null)) ??
+          sandbox
+      }
     }
     await this.restoreLifetime(sandbox, this.timeoutMs).catch(() => {})
     const command = await sandbox.runCommand({
@@ -74,21 +105,18 @@ export class SandboxRunner implements CommandRunner {
     let timer: ReturnType<typeof setTimeout> | undefined
     let timedOut = false
     const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => {
-          timedOut = true
-          reject(new Error(`command timed out after ${timeoutMs}ms`))
-        },
-        timeoutMs,
-      )
+      timer = setTimeout(() => {
+        timedOut = true
+        reject(new Error(`command timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
       if (typeof timer.unref === 'function') timer.unref()
     })
     try {
-      const finished = (await Promise.race([
-        command.wait(),
-        timeout,
-      ])) as { exitCode: number } | number
-      const exitCode = typeof finished === 'number' ? finished : finished.exitCode
+      const finished = (await Promise.race([command.wait(), timeout])) as
+        | { exitCode: number }
+        | number
+      const exitCode =
+        typeof finished === 'number' ? finished : finished.exitCode
       const [stdout, stderr] = await Promise.all([
         command.output('stdout'),
         command.output('stderr'),
@@ -139,7 +167,16 @@ export class SandboxRunner implements CommandRunner {
   }
 
   async writeFile(path: string, bytes: Buffer): Promise<void> {
-    const sandbox = await this.acquire()
+    const hadSandbox = this.sandbox !== undefined
+    let sandbox = await this.acquire()
+    if (hadSandbox) {
+      const credentials = await this.resolveSandboxCredentials?.()
+      if (credentials) {
+        const observed = await this.observeWithCredentials(credentials)
+        if (!observed) throw new Error('browser sandbox is unavailable')
+        sandbox = observed
+      }
+    }
     await sandbox.writeFiles([{ path, content: bytes }])
   }
 
@@ -222,6 +259,7 @@ type NamedBrowserSandboxOptions = {
   timeoutMs?: number
   vcpus?: number
   env?: Record<string, string>
+  resolveSandboxCredentials?: ResolveSandboxCredentials
 }
 
 function stableNames(id: string): { sandbox: string; session: string } {
@@ -252,7 +290,12 @@ class NamedSandboxRunner extends SandboxRunner {
   constructor(opts: NamedBrowserSandboxOptions) {
     const names = stableNames(opts.id)
     const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    super(undefined, { ...BASE_ENV, ...opts.env }, timeoutMs)
+    super(
+      undefined,
+      { ...BASE_ENV, ...opts.env },
+      timeoutMs,
+      opts.resolveSandboxCredentials,
+    )
     this.id = opts.id
     this.name = names.sandbox
     this.session = names.session
@@ -287,6 +330,7 @@ class NamedSandboxRunner extends SandboxRunner {
   protected override async acquire(): Promise<Sandbox> {
     if (this.sandbox) return this.sandbox
     this.sandbox = await Sandbox.getOrCreate({
+      ...(await this.resolveSandboxCredentials?.()),
       name: this.name,
       image: this.image,
       resources: { vcpus: this.vcpus },
@@ -299,9 +343,12 @@ class NamedSandboxRunner extends SandboxRunner {
     return this.sandbox
   }
 
-  protected override async observe(): Promise<Sandbox | null> {
+  protected override async observeWithCredentials(
+    credentials: SandboxCredentials | undefined,
+  ): Promise<Sandbox | null> {
     try {
       const sandbox = await Sandbox.get({
+        ...credentials,
         name: this.name,
         resume: false,
         onResume: this.onResume,
@@ -316,9 +363,15 @@ class NamedSandboxRunner extends SandboxRunner {
 
   protected override async destroyRuntime(): Promise<void> {
     try {
-      const sandbox =
-        this.sandbox ??
-        (await Sandbox.get({ name: this.name, resume: false }))
+      const credentials = await this.resolveSandboxCredentials?.()
+      let sandbox = this.sandbox
+      if (credentials || !sandbox) {
+        sandbox = await Sandbox.get({
+          ...credentials,
+          name: this.name,
+          resume: false,
+        })
+      }
       await sandbox.delete()
       this.sandbox = undefined
     } catch (error) {
@@ -346,12 +399,16 @@ export async function provisionBrowserSandbox(opts: {
   timeoutMs?: number
   vcpus?: number
   env?: Record<string, string>
+  resolveSandboxCredentials?: ResolveSandboxCredentials
 }): Promise<SandboxRunner> {
   const image =
-    opts.image ?? process.env.REMOTE_AGENT_BROWSER_IMAGE ?? DEFAULT_BROWSER_IMAGE
+    opts.image ??
+    process.env.REMOTE_AGENT_BROWSER_IMAGE ??
+    DEFAULT_BROWSER_IMAGE
   const env = { ...BASE_ENV, ...opts.env }
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const sandbox = await Sandbox.create({
+    ...(await opts.resolveSandboxCredentials?.()),
     image,
     resources: { vcpus: opts.vcpus ?? 2 },
     timeout: timeoutMs,
@@ -360,5 +417,10 @@ export async function provisionBrowserSandbox(opts: {
     persistent: false,
   })
 
-  return new SandboxRunner(sandbox, env, timeoutMs)
+  return new SandboxRunner(
+    sandbox,
+    env,
+    timeoutMs,
+    opts.resolveSandboxCredentials,
+  )
 }
