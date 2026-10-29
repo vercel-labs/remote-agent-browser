@@ -3,9 +3,13 @@ FROM node:24-slim
 # Keep the latest browser and its native CLI in the image so Sandbox creation
 # never installs packages at runtime. Debian Chromium supports amd64 and arm64.
 
-# The font packages mirror `agent-browser install --with-deps`. This image never
-# runs that command, so they have to be installed here or CJK and emoji glyphs
-# render as tofu boxes in screenshots.
+# The first four font packages mirror `agent-browser install --with-deps`. This
+# image never runs that command, so they have to be installed here or CJK and
+# emoji glyphs render as tofu boxes in screenshots. fonts-noto-core adds
+# fallback fonts for many other scripts, including Arabic, Hebrew, Thai,
+# Devanagari and other Indic scripts, extended Cyrillic, Mongolian, Armenian,
+# Georgian, and Ethiopic, plus symbol and math fonts for characters such as
+# U+2318 (the command key sign).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         chromium \
@@ -13,6 +17,7 @@ RUN apt-get update \
         fonts-noto-color-emoji \
         fonts-noto-cjk \
         fonts-freefont-ttf \
+        fonts-noto-core \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g --allow-scripts=agent-browser agent-browser@latest
 
