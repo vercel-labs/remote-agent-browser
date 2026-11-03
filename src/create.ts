@@ -31,6 +31,13 @@ export type CreateAgentBrowserOptions = {
   args?: string[]
   /** Proxy configuration fixed for this browser's lifetime. */
   proxy?: ProxyOptions
+  /**
+   * Force-kill Chromium when a command exceeds its `timeoutMs`, so a wedged
+   * browser cannot block later commands. This discards page state for every
+   * session in the Sandbox. Set false to keep the browser running and decide
+   * how to recover from the thrown `CommandTimeoutError`. Default: true.
+   */
+  reclaimBrowserOnTimeout?: boolean
 }
 
 export type CreateAgentBrowserSessionOptions = CreateAgentBrowserOptions & {
@@ -69,6 +76,7 @@ export async function createAgentBrowser(
     vcpus: opts.vcpus,
     env: opts.env,
     resolveSandboxCredentials: opts.resolveSandboxCredentials,
+    reclaimBrowserOnTimeout: opts.reclaimBrowserOnTimeout,
   })
   return createBrowserClient(runner, {
     session: opts.session,
@@ -98,6 +106,7 @@ export function createAgentBrowserSession(
     vcpus: opts.vcpus,
     env: opts.env,
     resolveSandboxCredentials: opts.resolveSandboxCredentials,
+    reclaimBrowserOnTimeout: opts.reclaimBrowserOnTimeout,
   })
   const browser = createBrowserClient(runner, {
     session: opts.session ?? runner.session,

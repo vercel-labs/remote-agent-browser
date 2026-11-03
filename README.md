@@ -256,6 +256,40 @@ browser.on('reset', ({ reason }) => {
 `browser.destroy()` permanently removes the named runtime. Stopping keepalive
 only allows its normal idle timeout to resume.
 
+### Command timeouts
+
+Each command has a deadline: `timeoutMs` on `run()`, `exec()`, `shell()`, and
+the convenience methods, defaulting to 60 seconds. When it elapses, the call
+rejects with `CommandTimeoutError`. The message is still
+`command timed out after <n>ms`, but classify the error by type or code rather
+than by its text:
+
+```ts
+import { CommandTimeoutError } from 'remote-agent-browser'
+
+try {
+  await browser.exec('wait', { args: ['--load', 'networkidle'], timeoutMs: 10_000 })
+} catch (error) {
+  if (error instanceof CommandTimeoutError) {
+    // error.code === 'COMMAND_TIMEOUT'
+    console.log(error.timeoutMs, error.browserReclaimed)
+  }
+  throw error
+}
+```
+
+A timed-out CLI call can leave Chromium wedged, so by default the runner then
+force-kills Chromium in the Sandbox. The next command launches a fresh browser,
+and page state, refs, cookies, and tabs from every session are lost.
+`browserReclaimed` reports whether that happened. To keep the browser running
+and handle recovery yourself, opt out when creating the browser:
+
+```ts
+const browser = await AgentBrowser.create({ reclaimBrowserOnTimeout: false })
+```
+
+`AgentBrowser.session()` accepts the same option.
+
 ### Keepalive
 
 Keep the Sandbox alive across idle gaps during long-running work. Always stop

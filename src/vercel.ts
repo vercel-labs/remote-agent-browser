@@ -16,6 +16,40 @@ const BASE_ENV = {
   AGENT_BROWSER_DEFAULT_TIMEOUT: '25000',
 }
 
+/**
+ * A runner command exceeded its deadline. The message is unchanged from
+ * earlier releases (`command timed out after <n>ms`); classify with
+ * `instanceof CommandTimeoutError` or `code === 'COMMAND_TIMEOUT'` instead of
+ * matching it.
+ */
+export class CommandTimeoutError extends Error {
+  readonly code = 'COMMAND_TIMEOUT'
+  /** The deadline that elapsed. */
+  readonly timeoutMs: number
+  /**
+   * Whether the runner force-killed Chromium after the timeout. When true, the
+   * page, refs, cookies, and tabs of every session in the runtime are gone and
+   * the next command launches a fresh browser.
+   */
+  readonly browserReclaimed: boolean
+
+  constructor(timeoutMs: number, browserReclaimed: boolean) {
+    super(`command timed out after ${timeoutMs}ms`)
+    this.name = 'CommandTimeoutError'
+    this.timeoutMs = timeoutMs
+    this.browserReclaimed = browserReclaimed
+  }
+}
+
+export type SandboxRunnerOptions = {
+  /**
+   * Force-kill Chromium after a command times out so a wedged browser cannot
+   * block later commands. Disable to keep page state and handle recovery
+   * yourself. Default: true.
+   */
+  reclaimBrowserOnTimeout?: boolean
+}
+
 /** CommandRunner backed by one Vercel Sandbox. */
 export class SandboxRunner implements CommandRunner {
   protected sandbox: Sandbox | undefined
@@ -24,6 +58,7 @@ export class SandboxRunner implements CommandRunner {
   protected readonly resolveSandboxCredentials:
     | ResolveSandboxCredentials
     | undefined
+  protected readonly reclaimBrowserOnTimeout: boolean
   private keepaliveStops = new Set<() => void>()
 
   constructor(
@@ -31,11 +66,13 @@ export class SandboxRunner implements CommandRunner {
     env: Record<string, string>,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     resolveSandboxCredentials?: ResolveSandboxCredentials,
+    options: SandboxRunnerOptions = {},
   ) {
     this.sandbox = sandbox
     this.env = env
     this.timeoutMs = timeoutMs
     this.resolveSandboxCredentials = resolveSandboxCredentials
+    this.reclaimBrowserOnTimeout = options.reclaimBrowserOnTimeout ?? true
   }
 
   protected async acquire(): Promise<Sandbox> {
@@ -107,7 +144,7 @@ export class SandboxRunner implements CommandRunner {
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         timedOut = true
-        reject(new Error(`command timed out after ${timeoutMs}ms`))
+        reject(new Error('command timed out'))
       }, timeoutMs)
       if (typeof timer.unref === 'function') timer.unref()
     })
@@ -124,15 +161,21 @@ export class SandboxRunner implements CommandRunner {
       return { stdout, stderr, exitCode }
     } catch (error) {
       await command.kill().catch(() => {})
-      if (timedOut) await this.reclaimBrowser(sandbox)
-      throw error
+      if (!timedOut) throw error
+      const browserReclaimed = this.reclaimBrowserOnTimeout
+        ? await this.reclaimBrowser(sandbox)
+        : false
+      throw new CommandTimeoutError(timeoutMs, browserReclaimed)
     } finally {
       if (timer) clearTimeout(timer)
     }
   }
 
-  /** A timed-out CLI call may leave Chromium wedged; force a clean relaunch. */
-  private async reclaimBrowser(sandbox: Sandbox): Promise<void> {
+  /**
+   * A timed-out CLI call may leave Chromium wedged; force a clean relaunch.
+   * Resolves true once the kill command was dispatched.
+   */
+  private async reclaimBrowser(sandbox: Sandbox): Promise<boolean> {
     try {
       const command = await sandbox.runCommand({
         cmd: 'sh',
@@ -153,7 +196,10 @@ export class SandboxRunner implements CommandRunner {
       } finally {
         if (timer) clearTimeout(timer)
       }
-    } catch {}
+      return true
+    } catch {
+      return false
+    }
   }
 
   async readFile(path: string): Promise<Buffer> {
@@ -253,7 +299,7 @@ export class SandboxRunner implements CommandRunner {
   }
 }
 
-type NamedBrowserSandboxOptions = {
+type NamedBrowserSandboxOptions = SandboxRunnerOptions & {
   id: string
   image?: string
   timeoutMs?: number
@@ -295,6 +341,7 @@ class NamedSandboxRunner extends SandboxRunner {
       { ...BASE_ENV, ...opts.env },
       timeoutMs,
       opts.resolveSandboxCredentials,
+      { reclaimBrowserOnTimeout: opts.reclaimBrowserOnTimeout },
     )
     this.id = opts.id
     this.name = names.sandbox
@@ -394,13 +441,15 @@ export function createNamedBrowserSandboxRunner(
  * Registry and contain both `agent-browser` and Chromium. A repository name,
  * tag, digest, or fully-qualified VCR reference is accepted by the SDK.
  */
-export async function provisionBrowserSandbox(opts: {
-  image?: string
-  timeoutMs?: number
-  vcpus?: number
-  env?: Record<string, string>
-  resolveSandboxCredentials?: ResolveSandboxCredentials
-}): Promise<SandboxRunner> {
+export async function provisionBrowserSandbox(
+  opts: SandboxRunnerOptions & {
+    image?: string
+    timeoutMs?: number
+    vcpus?: number
+    env?: Record<string, string>
+    resolveSandboxCredentials?: ResolveSandboxCredentials
+  },
+): Promise<SandboxRunner> {
   const image =
     opts.image ??
     process.env.REMOTE_AGENT_BROWSER_IMAGE ??
@@ -422,5 +471,6 @@ export async function provisionBrowserSandbox(opts: {
     env,
     timeoutMs,
     opts.resolveSandboxCredentials,
+    { reclaimBrowserOnTimeout: opts.reclaimBrowserOnTimeout },
   )
 }

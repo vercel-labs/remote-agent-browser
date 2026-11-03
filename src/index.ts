@@ -12,6 +12,7 @@ export {
   type CreateAgentBrowserSessionOptions,
 } from './create.js'
 export { createBrowserClient } from './browser.js'
+export { CommandTimeoutError } from './vercel.js'
 
 /** Create AgentBrowser clients backed by a fresh Vercel Sandbox. */
 export const AgentBrowser = {
