@@ -10,6 +10,7 @@ import {
   createAgentBrowser,
   createBrowserClient,
 } from '../dist/index.js'
+import * as pkg from '../dist/index.js'
 import {
   DEFAULT_BROWSER_IMAGE,
   SandboxRunner,
@@ -835,6 +836,155 @@ describe('provisionBrowserSandbox', () => {
         ],
         detached: true,
       })
+    } finally {
+      get.mock.restore()
+    }
+  })
+
+  it('rejects a command deadline with a typed, exported timeout error', async () => {
+    const hung = makeCommand()
+    hung.wait.mock.mockImplementationOnce(async () => new Promise(() => {}))
+    const sandbox = makeSandbox((options) => {
+      if (options.cmd === 'agent-browser') return hung
+      return makeCommand()
+    })
+    const create = mock.method(Sandbox, 'create', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+
+    try {
+      const browser = await AgentBrowser.create({ session: 's1' })
+      await assert.rejects(
+        browser.exec('snapshot', { timeoutMs: 1 }),
+        (error) => {
+          assert.equal(typeof pkg.CommandTimeoutError, 'function')
+          assert.ok(error instanceof pkg.CommandTimeoutError)
+          assert.ok(error instanceof Error)
+          assert.equal(error.name, 'CommandTimeoutError')
+          assert.equal(error.code, 'COMMAND_TIMEOUT')
+          assert.equal(error.message, 'command timed out after 1ms')
+          assert.equal(error.timeoutMs, 1)
+          assert.equal(error.browserReclaimed, true)
+          return true
+        },
+      )
+      // Default behavior is unchanged: Chromium is force-killed.
+      assert.equal(sandbox.calls[1].cmd, 'sh')
+      assert.match(sandbox.calls[1].args[1], /pkill -9 chromium/)
+      await browser.close()
+    } finally {
+      create.mock.restore()
+      get.mock.restore()
+    }
+  })
+
+  it('keeps Chromium running after a timeout when reclaim is disabled', async () => {
+    const hung = makeCommand()
+    hung.wait.mock.mockImplementationOnce(async () => new Promise(() => {}))
+    const sandbox = makeSandbox((options) => {
+      if (options.cmd === 'agent-browser') return hung
+      return makeCommand()
+    })
+    const create = mock.method(Sandbox, 'create', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+
+    try {
+      const browser = await AgentBrowser.create({
+        session: 's1',
+        reclaimBrowserOnTimeout: false,
+      })
+      await assert.rejects(
+        browser.exec('snapshot', { timeoutMs: 1 }),
+        (error) => {
+          assert.equal(error.message, 'command timed out after 1ms')
+          assert.equal(error.browserReclaimed, false)
+          return true
+        },
+      )
+      assert.equal(hung.kill.mock.calls.length, 1)
+      assert.deepEqual(
+        sandbox.calls.map((call) => call.cmd),
+        ['agent-browser'],
+      )
+      await browser.close()
+    } finally {
+      create.mock.restore()
+      get.mock.restore()
+    }
+  })
+
+  it('passes the reclaim opt-out through stable browser sessions', async () => {
+    const hung = makeCommand()
+    hung.wait.mock.mockImplementationOnce(async () => new Promise(() => {}))
+    const sandbox = makeSandbox((options) => {
+      if (options.cmd === 'agent-browser') return hung
+      return makeCommand()
+    })
+    const getOrCreate = mock.method(Sandbox, 'getOrCreate', async () => sandbox)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+
+    try {
+      const browser = AgentBrowser.session({
+        id: 'chat-timeout',
+        reclaimBrowserOnTimeout: false,
+      })
+      await assert.rejects(
+        browser.exec('snapshot', { timeoutMs: 1 }),
+        (error) => error.code === 'COMMAND_TIMEOUT' && !error.browserReclaimed,
+      )
+      assert.deepEqual(
+        sandbox.calls.map((call) => call.cmd),
+        ['agent-browser'],
+      )
+      await browser.destroy()
+    } finally {
+      getOrCreate.mock.restore()
+      get.mock.restore()
+    }
+  })
+
+  it('reports an unreclaimed browser when the cleanup command cannot start', async () => {
+    const hung = makeCommand()
+    hung.wait.mock.mockImplementationOnce(async () => new Promise(() => {}))
+    const sandbox = makeSandbox((options) => {
+      if (options.cmd === 'agent-browser') return hung
+      throw new Error('sandbox unavailable')
+    })
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+
+    try {
+      const runner = new SandboxRunner(sandbox, {}, 10_000)
+      await assert.rejects(
+        runner.run('agent-browser', ['snapshot'], { timeoutMs: 1 }),
+        (error) => {
+          assert.equal(error.name, 'CommandTimeoutError')
+          assert.equal(error.browserReclaimed, false)
+          return true
+        },
+      )
+    } finally {
+      get.mock.restore()
+    }
+  })
+
+  it('does not classify other command failures as timeouts', async () => {
+    const failing = makeCommand()
+    failing.wait.mock.mockImplementationOnce(async () => {
+      throw new Error('stream closed')
+    })
+    const sandbox = makeSandbox(() => failing)
+    const get = mock.method(Sandbox, 'get', async () => sandbox)
+
+    try {
+      const runner = new SandboxRunner(sandbox, {}, 10_000)
+      await assert.rejects(
+        runner.run('agent-browser', ['snapshot'], { timeoutMs: 1_000 }),
+        (error) => {
+          assert.equal(error.message, 'stream closed')
+          assert.notEqual(error.name, 'CommandTimeoutError')
+          return true
+        },
+      )
+      assert.equal(sandbox.calls.length, 1)
     } finally {
       get.mock.restore()
     }
