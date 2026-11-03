@@ -217,7 +217,28 @@ await writeFile('verification.png', file.bytes)
   snapshot. Omit the URL to inspect the current page.
 - `browser.screenshot(url?, { fullPage: true })` optionally opens a page, then
   returns a PNG buffer. Pass the options object first to capture the current page.
+  See [Screenshot formats](#screenshot-formats) for JPEG output.
 - `browser.close()` closes the session and stops the Sandbox.
+
+### Screenshot formats
+
+`browser.screenshot()` returns `{ bytes, contentType, format, result }`. PNG is
+the default, and PNG results also keep the `png` field (the same `Buffer` as
+`bytes`) for existing callers.
+
+Request JPEG with `format: 'jpeg'` and an optional integer `quality` from 0 to
+100. JPEG is usually much smaller than PNG for photo-heavy pages or high
+device-pixel-ratio viewports, which helps when an image must fit a size limit:
+
+```ts
+const shot = await browser.screenshot({ format: 'jpeg', quality: 70 })
+await writeFile('page.jpg', shot.bytes)
+console.log(shot.contentType) // image/jpeg
+```
+
+JPEG results never set `png`, so JPEG bytes cannot be mistaken for a PNG; read
+`bytes` instead. `quality` without `format: 'jpeg'`, a quality outside 0–100,
+or any other format is rejected before a command runs.
 
 All methods use the same disposable browser session until `close()` is called.
 

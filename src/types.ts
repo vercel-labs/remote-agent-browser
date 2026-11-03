@@ -55,7 +55,46 @@ export type RunOptions = {
   timeoutMs?: number
 }
 
-export type ScreenshotOptions = RunOptions & { fullPage?: boolean }
+export type ScreenshotFormat = 'png' | 'jpeg'
+
+export type ScreenshotOptions = RunOptions & {
+  fullPage?: boolean
+  /** Image encoding. Default: the CLI default, PNG. */
+  format?: ScreenshotFormat
+  /** JPEG quality as an integer from 0 to 100. Requires `format: 'jpeg'`. */
+  quality?: number
+}
+
+/** Screenshot options that produce a PNG (the default). */
+export type PngScreenshotOptions = ScreenshotOptions & {
+  format?: 'png'
+  quality?: undefined
+}
+
+/** Screenshot options that produce a JPEG. */
+export type JpegScreenshotOptions = ScreenshotOptions & { format: 'jpeg' }
+
+type ScreenshotBase = {
+  /** Encoded image bytes in `format`. */
+  bytes: Buffer
+  result: BrowserRunResult
+}
+
+export type PngScreenshot = ScreenshotBase & {
+  format: 'png'
+  contentType: 'image/png'
+  /** The PNG bytes; the same Buffer as `bytes`. */
+  png: Buffer
+}
+
+export type JpegScreenshot = ScreenshotBase & {
+  format: 'jpeg'
+  contentType: 'image/jpeg'
+  /** Never set for JPEG so JPEG bytes are not mistaken for PNG; use `bytes`. */
+  png?: undefined
+}
+
+export type Screenshot = PngScreenshot | JpegScreenshot
 
 export type ExecOptions = {
   session?: string
@@ -164,9 +203,17 @@ export interface AgentBrowser {
   ): Promise<BrowserRunResult>
   /** Optionally open a URL, then return a PNG screenshot. */
   screenshot(
+    urlOrOptions?: string | PngScreenshotOptions,
+    opts?: PngScreenshotOptions,
+  ): Promise<PngScreenshot>
+  /** Optionally open a URL, then return a JPEG screenshot. */
+  screenshot(opts: JpegScreenshotOptions): Promise<JpegScreenshot>
+  screenshot(url: string, opts: JpegScreenshotOptions): Promise<JpegScreenshot>
+  /** Optionally open a URL, then return a screenshot in the requested format. */
+  screenshot(
     urlOrOptions?: string | ScreenshotOptions,
     opts?: ScreenshotOptions,
-  ): Promise<{ png: Buffer; result: BrowserRunResult }>
+  ): Promise<Screenshot>
   /**
    * Keep the backing Sandbox alive across idle gaps. Call the returned stop
    * function in a finally block so the Sandbox can expire when work finishes.

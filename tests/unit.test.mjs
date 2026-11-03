@@ -782,6 +782,67 @@ describe('createBrowserClient', () => {
     await browser.close()
   })
 
+  it('captures JPEG screenshots with a quality and reports their content type', async () => {
+    const r = runner()
+    r.readFile = mock.fn(async () => Buffer.from('jpeg-bytes'))
+    const browser = createBrowserClient(r, { session: 's1' })
+    const shot = await browser.screenshot({
+      fullPage: true,
+      format: 'jpeg',
+      quality: 70,
+    })
+    const args = r.run.mock.calls[0].arguments[1]
+    assert.deepEqual(args.slice(0, -1), [
+      '--session', 's1', 'screenshot', '--full',
+      '--screenshot-format', 'jpeg', '--screenshot-quality', '70',
+    ])
+    assert.match(args.at(-1), /^\/tmp\/agent-browser-.*\.jpeg$/)
+    assert.equal(shot.format, 'jpeg')
+    assert.equal(shot.contentType, 'image/jpeg')
+    assert.deepEqual(shot.bytes, Buffer.from('jpeg-bytes'))
+    // JPEG bytes are never exposed under the PNG-specific field.
+    assert.equal(shot.png, undefined)
+    await browser.close()
+  })
+
+  it('keeps the PNG screenshot shape and command for existing callers', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    const shot = await browser.screenshot('https://example.com')
+    assert.deepEqual(r.run.mock.calls[1].arguments[1].slice(0, -1), [
+      '--session', 's1', 'screenshot',
+    ])
+    assert.match(r.run.mock.calls[1].arguments[1].at(-1), /\.png$/)
+    assert.deepEqual(shot.png, Buffer.from('png-bytes'))
+    assert.equal(shot.bytes, shot.png)
+    assert.equal(shot.format, 'png')
+    assert.equal(shot.contentType, 'image/png')
+    await browser.close()
+  })
+
+  it('validates screenshot format and quality before running a command', async () => {
+    const r = runner()
+    const browser = createBrowserClient(r, { session: 's1' })
+    await assert.rejects(
+      browser.screenshot({ format: 'webp' }),
+      /format must be "png" or "jpeg"/,
+    )
+    await assert.rejects(
+      browser.screenshot({ format: 'jpeg', quality: 101 }),
+      /quality must be an integer from 0 to 100/,
+    )
+    await assert.rejects(
+      browser.screenshot({ format: 'jpeg', quality: 70.5 }),
+      /quality must be an integer from 0 to 100/,
+    )
+    await assert.rejects(
+      browser.screenshot({ quality: 70 }),
+      /quality requires format "jpeg"/,
+    )
+    assert.equal(r.run.mock.calls.length, 0)
+    await browser.close()
+  })
+
   it('still opens a URL before capturing when one is supplied', async () => {
     const r = runner()
     const browser = createBrowserClient(r, { session: 's1' })
