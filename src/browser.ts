@@ -10,7 +10,13 @@ import type {
   KeepaliveOptions,
   ProxyOptions,
   AgentBrowser,
+  JpegScreenshot,
+  JpegScreenshotOptions,
+  PngScreenshot,
+  PngScreenshotOptions,
   RunOptions,
+  Screenshot,
+  ScreenshotOptions,
   ShellOptions,
 } from './types.js'
 
@@ -69,6 +75,29 @@ function proxyOutputRedactor(proxy: ProxyOptions | undefined) {
   )
   if (redacted === url) return (value: string) => value
   return (value: string) => value.replaceAll(url, redacted)
+}
+
+function screenshotFormatArgs(opts: ScreenshotOptions): string[] {
+  const { format, quality } = opts
+  if (format !== undefined && format !== 'png' && format !== 'jpeg') {
+    throw new RangeError(
+      `screenshot format must be "png" or "jpeg", got "${String(format)}"`,
+    )
+  }
+  if (quality !== undefined) {
+    if (format !== 'jpeg') {
+      throw new RangeError('screenshot quality requires format "jpeg"')
+    }
+    if (!Number.isInteger(quality) || quality < 0 || quality > 100) {
+      throw new RangeError(
+        `screenshot quality must be an integer from 0 to 100, got ${quality}`,
+      )
+    }
+  }
+  const args: string[] = []
+  if (format !== undefined) args.push('--screenshot-format', format)
+  if (quality !== undefined) args.push('--screenshot-quality', String(quality))
+  return args
 }
 
 function safeFilename(name: string): string {
@@ -337,6 +366,65 @@ export function createBrowserClient(
     return { ...result, data: envelope.data as T } as BrowserCommandResult<T>
   }
 
+  function screenshot(
+    this: AgentBrowser,
+    urlOrOptions?: string | PngScreenshotOptions,
+    opts?: PngScreenshotOptions,
+  ): Promise<PngScreenshot>
+  function screenshot(
+    this: AgentBrowser,
+    opts: JpegScreenshotOptions,
+  ): Promise<JpegScreenshot>
+  function screenshot(
+    this: AgentBrowser,
+    url: string,
+    opts: JpegScreenshotOptions,
+  ): Promise<JpegScreenshot>
+  function screenshot(
+    this: AgentBrowser,
+    urlOrOptions?: string | ScreenshotOptions,
+    opts?: ScreenshotOptions,
+  ): Promise<Screenshot>
+  async function screenshot(
+    this: AgentBrowser,
+    urlOrOptions?: string | ScreenshotOptions,
+    opts: ScreenshotOptions = {},
+  ): Promise<Screenshot> {
+    const url = typeof urlOrOptions === 'string' ? urlOrOptions : undefined
+    const runOpts = typeof urlOrOptions === 'string' ? opts : (urlOrOptions ?? {})
+    const shotArgs = ['screenshot']
+    if (runOpts.fullPage) shotArgs.push('--full')
+    // Validate before any command runs so a bad option cannot navigate first.
+    shotArgs.push(...screenshotFormatArgs(runOpts))
+    const commands = url ? [['open', url]] : []
+    commands.push(shotArgs)
+    const run = await this.run(commands, runOpts)
+    const file = run.results.find((r) => r.file)?.file
+    if (!file) {
+      throw new Error(
+        `screenshot failed: ${
+          run.results.map((r) => r.stderr || r.stdout).join('\n') || 'no output'
+        }`,
+      )
+    }
+    // outputSpec() derives the remote file type from --screenshot-format.
+    if (file.contentType === 'image/jpeg') {
+      return {
+        format: 'jpeg',
+        contentType: 'image/jpeg',
+        bytes: file.bytes,
+        result: run,
+      }
+    }
+    return {
+      format: 'png',
+      contentType: 'image/png',
+      bytes: file.bytes,
+      png: file.bytes,
+      result: run,
+    }
+  }
+
   return {
     session,
 
@@ -459,24 +547,7 @@ export function createBrowserClient(
       return this.run(commands, runOpts)
     },
 
-    async screenshot(urlOrOptions, opts = {}) {
-      const url = typeof urlOrOptions === 'string' ? urlOrOptions : undefined
-      const runOpts = typeof urlOrOptions === 'string' ? opts : (urlOrOptions ?? {})
-      const shotArgs = ['screenshot']
-      if (runOpts.fullPage) shotArgs.push('--full')
-      const commands = url ? [['open', url]] : []
-      commands.push(shotArgs)
-      const run = await this.run(commands, runOpts)
-      const file = run.results.find((r) => r.file)?.file
-      if (!file) {
-        throw new Error(
-          `screenshot failed: ${
-            run.results.map((r) => r.stderr || r.stdout).join('\n') || 'no output'
-          }`,
-        )
-      }
-      return { png: file.bytes, result: run }
-    },
+    screenshot,
 
     keepalive(opts: KeepaliveOptions = {}) {
       assertOpen()
